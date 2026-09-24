@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TT-Kickbase</title>
+    <link rel="stylesheet" href="base.css">
+    <link rel="stylesheet" href="home.css">
+    <link rel="stylesheet" href="player-view.css">
+    <link rel="stylesheet" href="scouting.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.0/css/all.min.css" integrity="sha512-ApSLB1Pd3/bZN8fWB/RG9YhN/7bd9Hkf3AGaE2mPfebjrxagjuBtx2GcgdqIlJkUzwylBo61r9Xa9NmgBI0swA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="config.js"></script>
+    <script src="calendar.js" type="module"></script>
+    <script src="modal.js" type="module"></script>
+    <script src="meeting-modal.js" type="module"></script>
+    <script src="player-view.js" type="module"></script>
+    <script src="scouting.js" type="module"></script>
+    <script src="connectiontest.js"></script>
+</head>
+<body>
+    <header id="header">
+        <nav name="nav">
+            <ul>
+                <li><a href="index.html"><i class="fa-solid fa-house" style="color: rgb(255, 255, 255);"></i></a></li>
+                <li><a href="liga.html">Liga</a></li>
+                <li><a href="punktetabelle.html">Punktetabelle</a></li>
+                <li><a href="settings.html"><i class="fa-solid fa-gear" style="color: rgb(255, 255, 255);"></i></a></li>
+            </ul>
+        </nav>
+        <div class="flex-container">
+            <h1>HOME</h1>
+        </div>
+    </header>
+
+    <section>
+        <div class="head-label">Kalender</div>
+        <div class="calendar-container">
+            <div class="calendar" calendar>
+                <div class="teamselection">
+                    <button data-modal-target="#teamselect-modal" id="teamselect"><i class="fa-solid fa-users-gear fa-xl" style="color: rgb(255, 255, 255);"></i></button>
+                </div>
+                <div class="calendar-header">
+                    <button id="prev" calendar-prev-btn><i class="fa-solid fa-angle-left" style="color: rgb(255, 255, 255);"></i></button>
+                    <time id="month-year" calendar-date></time>
+                    <button id="next" calendar-next-btn><i class="fa-solid fa-angle-right" style="color: rgb(255, 255, 255);"></i></button>
+                </div>
+                <div class="calendar-content">
+                    <ul class="calendar-dayofweek-list">
+                        <li class="calendar-dayofweek">Mo</li>
+                        <li class="calendar-dayofweek">Di</li>
+                        <li class="calendar-dayofweek">Mi</li>
+                        <li class="calendar-dayofweek">Do</li>
+                        <li class="calendar-dayofweek">Fr</li>
+                        <li class="calendar-dayofweek">Sa</li>
+                        <li class="calendar-dayofweek">So</li>
+                    </ul>
+                    <ul class="calendar-day-list" calendar-day-list>
+
+                    </ul>
+                </div>
+        </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="head-label">Scout List</div>
+        <div class="scout-list-container">
+
+        </div>
+    </section>
+    
+    <section>
+        <div class="modal" id="teamselect-modal">
+            <div class="modal-header">
+                <div class="modal-title">Team Selection</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="selection-flexbox" id="teamselect-flexbox">
+
+                </div>
+            </div>
+        </div>
+        <div class="modal" id="meeting-modal">
+            <div class="modal-header">
+                <div class="modal-title">Matchcenter</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body" id="meeting-modal-body">
+
+            </div>
+        </div>
+        <div class="modal" id="player-modal">
+            <div class="modal-header">
+                <div class="modal-title">Spieler</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body" id="player-modal-body">
+
+            </div>
+        </div>
+        <div id="modal-overlay">
+            
+        </div>
+    </section>
+
+    <template template="calendar-day-list-item">
+        <li class="calendar-day-list-item" calendar-day-list-item>
+            <button class="calendar-day-btn1" calendar-day></button>
+        </li>
+    </template>
+
+    <template template="modal-meeting-item">
+        <div class="meeting-container">
+            <div class="date-wrapper">
+                <hr> <p data="meeting-modal-date">date</p> <hr>
+            </div>
+            <div class="league-name-wrapper" data="meeting-modal-leaguename">League Name</div>
+            <div class="matchup-wrapper">
+                <div class="teamname-home" data="meeting-modal-team-home">TEAM HOME</div>
+                <img src="" alt="logo" data="meeting-modal-logo-home">
+                <div class="matchresult">
+                    <b data="meeting-modal-games-home">0</b>
+                    <b>-</b>
+                    <b data="meeting-modal-games-away">0</b>
+                </div>
+                <img src="" alt="logo" data="meeting-modal-logo-away">
+                <div class="teamname-away" data="meeting-modal-team-away">TEAM AWAY</div>
+            </div>
+            <div class="scores-wrapper">
+                <div class="scores-container">
+                    <div class="scores" data="meeting-modal-scores-home">
+
+                    </div>
+                    <div class="coach">
+                        <i class="fa-solid fa-user-tie" style="color: rgb(255, 255, 255);"></i>
+                        <p data="meeting-modal-coach-home">Coach</p>
+                    </div>
+                </div>
+                <div class="scores-container">
+                    <div class="scores" data="meeting-modal-scores-away">
+
+                    </div>
+                    <div class="coach">
+                        <i class="fa-solid fa-user-tie" style="color: rgb(255, 255, 255);"></i>
+                        <p data="meeting-modal-coach-away">Coach</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template template="modal-meeting-player-item">
+        <button type="button" class="player-score-wrapper">
+            <div class="player-name">
+                <p class="first" data="meeting-modal-firstname">firstname</p>
+                <p class="last" data="meeting-modal-lastname">Lastname</p>
+            </div>
+            <div class="player-score" data="meeting-modal-pscore">0</div>
+        </button>
+    </template>
+
+</body>
+</html>

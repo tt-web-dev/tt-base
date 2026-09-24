@@ -1,0 +1,196 @@
+@import "./modal.css";
+@import "./loading.css";
+
+@font-face{
+    font-family: KB_Pitch-Still;
+    src:url('fonts/KB_Pitch/KB_Pitch/Web/TTF/KBPitch-Still.ttf') format('truetype'),
+    url('fonts/KB_Pitch/KB_Pitch/Web/WOFF2/KBPitch-Still.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+@font-face{
+    font-family: KB_Pitch-Run;
+    src:url('fonts/KB_Pitch/KB_Pitch/Web/TTF/KBPitch-Run.ttf') format('truetype'),
+    url('fonts/KB_Pitch/KB_Pitch/Web/WOFF2/KBPitch-Run.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+@font-face{
+    font-family: KB_Pitch-Sprint;
+    src:url('fonts/KB_Pitch/KB_Pitch/Web/TTF/KBPitch-Sprint.ttf') format('truetype'),
+    url('fonts/KB_Pitch/KB_Pitch/Web/WOFF2/KBPitch-Sprint.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+@font-face{
+    font-family: KB_Volksans-Regular;
+    src:url('fonts/KB_Volksans/KB_Volksans/otf/KB_volksans_Regular.otf') format('opentype'),
+    url('fonts/KB_Volksans/KB_Volksans/woff2/KB_volksans_Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+@font-face{
+    font-family: KB_Volksans-Bold;
+    src:url('fonts/KB_Volksans/KB_Volksans/otf/KB_volksans_Bold.otf') format('opentype'),
+    url('fonts/KB_Volksans/KB_Volksans/woff2/KB_volksans_Bold.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+@font-face{
+    font-family: KB_Volksans-Normal;
+    src:url('fonts/KB_Volksans/KB_Volksans/otf/KB_volksans_Normal.otf') format('opentype'),
+    url('fonts/KB_Volksans/KB_Volksans/woff2/KB_volksans_Normal.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+}
+
+:root{
+    --base-color: #131417;
+    --text-color: #ffffff;
+    --primary-color: #ffc06e;
+    --secondary-color: #8D8DFF;
+    --Black: #131417;
+    --Light-Black: #262424;
+    --Dark-Grey: #474B4E;
+    --Grey: #7E8187;
+    --Light-Grey: #A8ADB4;
+    --White: #DEE4EC;
+    --Orange: #FF4600;
+    --Deep-Dark: #1B0C2F;
+    --Purple: #9747FF;
+    --Green: #00A668;
+    --bar1: #E60A14;
+    --bar2: #FD863D;
+    --bar3: #7ED957;
+    --bar4: #1DAD68;
+    --bar5: #DCB941;
+    --w: #00A314;
+    --r: #EA9000;
+    --l: #E82017;
+}
+
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html{
+    font-family: KB_Volksans-Regular;
+    color: var(--text-color);
+}
+
+body{
+    padding: 1em;
+    background-color: var(--base-color);
+
+}
+
+h1, h2, h3{
+    font-family: KB_Pitch-Still;
+}
+
+nav{
+    margin: 1em auto 3em auto;
+    width: min(1000px, 100%);
+}
+
+nav ul{
+    display: flex;
+    align-items: center;
+    list-style: none;
+    justify-content: space-between;
+}
+
+nav li:firstchild {
+    margin-right:auto;
+}
+nav li:lastchild {
+    margin-left:auto;
+}
+
+nav a{
+    text-decoration: none;
+    color: var(--text-color);
+}
+nav a:hover{
+    text-decoration: underline;
+    color: var(--Orange);
+}
+
+.placeholder {
+    visibility: hidden;
+}
+
+
+.flex-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 2em auto;
+    width: 100%;
+    background-color: var(--Dark-Grey);
+    padding: min(2em, 75%);
+    border-radius: 1em;
+}
+
+.flex-container a {
+    color: var(--White);
+    font-size: 1.5em;
+}
+
+.txt-container {
+    width: 95%;
+    margin: 1em auto;
+    font-size: 1em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-wrap: break-word;
+    display: block;
+    line-height: 1.4em;
+    text-align: left;
+}
+
+.table-container {
+    width: 95%;
+    margin: 1em auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.head-label {
+    font-family: KB_Volksans-Bold;
+    background-color: var(--Dark-Grey);
+    display: flex;
+    margin: 1em auto;
+    padding: min(1em, 75%);
+    width: 95%;
+    border-radius: .7em;
+
+}
+
+table {
+    table-layout: auto;
+    width: 100%;
+}
+
+td {
+    font-family: KB_Volksans-Normal;
+    padding: .2em;
+}
+
+tr td + td {
+    text-align: right;
+}
+
+
+
+/*
+.parent{
+    display: 'flex';
+    justify-content: 'center' | 'space-between';
+    align-items: 'center' | 'space-between';
+}
+*/

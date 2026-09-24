@@ -1,0 +1,35 @@
+# Nightly warm: 01:00 UTC (= 03:00 CEST, fixed UTC+2) every day.
+# Fills Supabase with new results; finished meetings are skipped, done
+# meetings younger than 2 days are re-fetched for myTT corrections.
+# On a 429 the script sleeps 60 min and resumes (up to --retries times),
+# then exits 0 — the next night resumes from the Supabase checkpoint.
+name: warm-nightly
+
+on:
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: Backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: Backend/package-lock.json
+      - run: npm install --no-audit --no-fund
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - run: npm run warm -- --rqph=40 --retries=3
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MYTT_COOKIE: ${{ secrets.MYTT_COOKIE }}

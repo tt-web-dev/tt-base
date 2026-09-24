@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TT-Kickbase</title>
+    <link rel="stylesheet" href="base.css">
+    <link rel="stylesheet" href="liga.css">
+    <link rel="stylesheet" href="player-view.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.0/css/all.min.css" integrity="sha512-ApSLB1Pd3/bZN8fWB/RG9YhN/7bd9Hkf3AGaE2mPfebjrxagjuBtx2GcgdqIlJkUzwylBo61r9Xa9NmgBI0swA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="config.js"></script>
+    <script src="liga.js" type="module"></script>
+    <script src="meeting-modal.js" type="module"></script>
+    <script src="connectiontest.js"></script>
+</head>
+<body>
+    <header id="header">
+        <nav name="nav">
+            <ul>
+                <li><a href="index.html"><i class="fa-solid fa-house" style="color: rgb(255, 255, 255);"></i></a></li>
+                <li><a href="liga.html">Liga</a></li>
+                <li><a href="punktetabelle.html">Punktetabelle</a></li>
+                <li><a href="settings.html"><i class="fa-solid fa-gear" style="color: rgb(255, 255, 255);"></i></a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <div class="liga-stickybar">
+        <div class="liga-switcher">
+            <button id="liga-select" data-modal-target="#ligaselect-modal" aria-haspopup="dialog">
+                <span id="liga-select-name">LIGA</span>
+                <i class="fa-solid fa-chevron-up fa-xs" style="color: rgb(255, 255, 255);"></i><i class="fa-solid fa-chevron-down fa-xs" style="color: rgb(255, 255, 255);"></i>
+            </button>
+        </div>
+        <div class="liga-tabs" role="tablist" aria-label="Liga-Ansicht">
+            <button type="button" id="tab-begegnungen" class="active" role="tab" aria-selected="true">BEGEGNUNGEN</button>
+            <button type="button" id="tab-tabelle" role="tab" aria-selected="false">TABELLE</button>
+        </div>
+    </div>
+
+    <main id="liga-list" aria-live="polite"></main>
+    <section id="liga-table" aria-live="polite" hidden></section>
+    <div id="liga-status" class="liga-status">Lade Spielplan …</div>
+
+    <section>
+        <div class="modal liga-modal" id="ligaselect-modal">
+            <div class="modal-header">
+                <div class="modal-title liga-modal-title">WETTBEWERB WECHSELN</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="liga-select-list" id="ligaselect-list"></div>
+            </div>
+        </div>
+        <div class="modal" id="meeting-modal">
+            <div class="modal-header">
+                <div class="modal-title">Matchcenter</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body" id="meeting-modal-body">
+
+            </div>
+        </div>
+        <div class="modal" id="player-modal">
+            <div class="modal-header">
+                <div class="modal-title">Spieler</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body" id="player-modal-body">
+
+            </div>
+        </div>
+        <div id="modal-overlay">
+
+        </div>
+    </section>
+
+    <template template="modal-meeting-item">
+        <div class="meeting-container">
+            <div class="date-wrapper">
+                <hr> <p data="meeting-modal-date">date</p> <hr>
+            </div>
+            <div class="league-name-wrapper" data="meeting-modal-leaguename">League Name</div>
+            <div class="matchup-wrapper">
+                <div class="teamname-home" data="meeting-modal-team-home">TEAM HOME</div>
+                <img src="" alt="logo" data="meeting-modal-logo-home">
+                <div class="matchresult">
+                    <b data="meeting-modal-games-home">0</b>
+                    <b>-</b>
+                    <b data="meeting-modal-games-away">0</b>
+                </div>
+                <img src="" alt="logo" data="meeting-modal-logo-away">
+                <div class="teamname-away" data="meeting-modal-team-away">TEAM AWAY</div>
+            </div>
+            <div class="scores-wrapper">
+                <div class="scores-container">
+                    <div class="scores" data="meeting-modal-scores-home">
+
+                    </div>
+                    <div class="coach">
+                        <i class="fa-solid fa-user-tie" style="color: rgb(255, 255, 255);"></i>
+                        <p data="meeting-modal-coach-home">Coach</p>
+                    </div>
+                </div>
+                <div class="scores-container">
+                    <div class="scores" data="meeting-modal-scores-away">
+
+                    </div>
+                    <div class="coach">
+                        <i class="fa-solid fa-user-tie" style="color: rgb(255, 255, 255);"></i>
+                        <p data="meeting-modal-coach-away">Coach</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template template="modal-meeting-player-item">
+        <button type="button" class="player-score-wrapper">
+            <div class="player-name">
+                <p class="first" data="meeting-modal-firstname">firstname</p>
+                <p class="last" data="meeting-modal-lastname">Lastname</p>
+            </div>
+            <div class="player-score" data="meeting-modal-pscore">0</div>
+        </button>
+    </template>
+
+</body>
+</html>

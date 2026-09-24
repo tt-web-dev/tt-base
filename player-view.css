@@ -1,0 +1,513 @@
+/* Player view — Kickbase faithfully translated to TT (dark, bottom-tabbed, hero header) */
+
+#player-modal {
+    background: var(--Black);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+#player-modal .modal-header {
+    flex-shrink: 0;
+    background: rgba(19,20,23,0.95);
+    border-bottom: 1px solid var(--Dark-Grey);
+}
+#player-modal .modal-body {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.player-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: var(--Black);
+}
+
+/* ——— HERO ——— */
+.player-hero {
+    flex-shrink: 0;
+    display: grid;
+    justify-items: center;
+    gap: 0.55em;
+    padding: 0.9em 0.85em 0.75em;
+    text-align: center;
+    background: var(--Black);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.player-hero-names {
+    text-align: center;
+}
+.player-hero .ph-first {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.82em;
+    letter-spacing: 0.04em;
+    color: var(--Light-Grey);
+    margin-bottom: 0.15em;
+}
+.player-hero .ph-last {
+    font-family: KB_Pitch-Still;
+    font-size: 1.95em;
+    line-height: 0.95;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--White);
+    text-shadow: 0 2px 18px rgba(0,0,0,0.7);
+}
+.player-hero-badges {
+    display: flex;
+    gap: 0.35em;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 0.15em;
+}
+.player-hero-badges button {
+    font-family: KB_Volksans-Bold;
+    font-size: 0.62em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.09);
+    color: var(--Light-Grey);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 0.28em 0.75em;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.player-hero-badges button.active {
+    background: var(--White);
+    color: var(--Black);
+    border-color: var(--White);
+}
+
+/* meta row under hero */
+.player-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75em;
+    padding: 0.6em 0.85em;
+    background: var(--Black);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+}
+.player-meta-left {
+    display: flex;
+    align-items: center;
+    gap: 0.55em;
+    min-width: 0;
+}
+.player-meta-left img {
+    width: 1.9em;
+    height: 1.9em;
+    object-fit: contain;
+    flex-shrink: 0;
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,0.5));
+}
+.player-meta-team {
+    font-family: KB_Volksans-Bold;
+    font-size: 0.78em;
+    color: var(--Light-Grey);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.player-scouted {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5em;
+    font-family: KB_Volksans-Bold;
+    font-size: 0.7em;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.55em 1.05em;
+    cursor: pointer;
+    transition: transform 120ms ease, background 140ms, color 140ms, border-color 140ms;
+}
+.player-scouted.is-inactive {
+    background: #000;
+    color: #fff;
+    border: 1px solid #6b7280;
+}
+.player-scouted.is-active {
+    background: #fff;
+    color: #000;
+    border: 1px solid #000;
+}
+.player-scouted:active { transform: scale(0.96); }
+@keyframes scout-pop {
+    0% { transform: scale(0.96); }
+    50% { transform: scale(1.06); }
+    100% { transform: scale(1); }
+}
+.player-scouted.is-popping { animation: scout-pop 180ms ease-out; }
+
+/* scrollable content between meta and bottom bar */
+.player-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.75em 0.75em 0.5em;
+    display: grid;
+    gap: 0.65em;
+    align-content: start;
+}
+
+/* form dots (hidden text, just color) */
+.player-form {
+    display: flex;
+    justify-content: flex-start;
+    gap: 0.32em;
+    padding: 0.15em 0 0.2em;
+}
+.player-form span {
+    width: 1.55em;
+    height: 0.22em;
+    border-radius: 999px;
+    background: var(--Dark-Grey);
+}
+.player-form span.one { background: var(--bar1); }
+.player-form span.two { background: var(--bar2); }
+.player-form span.three { background: var(--bar3); }
+.player-form span.four { background: var(--bar4); }
+.player-form span.five { background: var(--bar5); }
+.player-form span.six { background: var(--Light-Grey); }
+
+/* ——— CARDS ——— */
+.player-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5em;
+}
+.player-card {
+    background: #1c1e20;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0.7em;
+    padding: 0.75em 0.6em 0.65em;
+    text-align: left;
+    display: grid;
+    gap: 0.18em;
+    align-content: center;
+    min-height: 4.2em;
+}
+.player-card--full {
+    grid-column: 1 / -1;
+}
+.player-card .t {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.62em;
+    letter-spacing: 0.04em;
+    color: var(--Light-Grey);
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+}
+.player-card .t i { font-size: 0.9em; }
+.player-card .v {
+    font-family: KB_Pitch-Still;
+    font-size: 1.35em;
+    line-height: 1;
+    color: var(--White);
+}
+.player-card .l {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.68em;
+    letter-spacing: 0.02em;
+    color: var(--Light-Grey);
+}
+.player-card .v.one { color: var(--bar1); }
+.player-card .v.two { color: var(--bar2); }
+.player-card .v.three { color: var(--bar3); }
+.player-card .v.four { color: var(--bar4); }
+.player-card .v.five { color: var(--bar5); }
+.player-card .v.six { color: var(--Light-Grey); }
+.player-card .v.neg { color: var(--bar1); }
+.player-card .v.pos { color: var(--Green); }
+.t.pos { color: var(--Green); }
+.t.neg { color: var(--bar1); }
+
+/* triple stat row (Siege/Niederlagen etc.) */
+.player-triple {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5em;
+}
+
+/* ——— LAST MATCHES ——— */
+.player-section-title {
+    font-family: KB_Volksans-Bold;
+    font-size: 0.68em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--Light-Grey);
+    padding: 0.2em 0.15em 0;
+}
+.player-lastmatches {
+    display: grid;
+    gap: 0.45em;
+}
+.player-lastmatch {
+    background: #1c1e20;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0.7em;
+    padding: 0.55em 0.7em;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.6em;
+    font-size: 0.88em;
+}
+.player-lastmatch .lm-date {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.78em;
+    color: var(--Light-Grey);
+    min-width: 3.6em;
+}
+.player-lastmatch .lm-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45em;
+    min-width: 0;
+}
+.player-lastmatch img {
+    width: 1.45em;
+    height: 1.45em;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+.player-lastmatch .lm-score {
+    font-family: KB_Pitch-Still;
+    font-size: 0.95em;
+    white-space: nowrap;
+}
+.player-lastmatch .lm-pscore {
+    font-family: KB_Pitch-Still;
+    font-size: 0.95em;
+    min-width: 2.2em;
+    text-align: right;
+}
+.lm-pscore.one { color: var(--bar1); }
+.lm-pscore.two { color: var(--bar2); }
+.lm-pscore.three { color: var(--bar3); }
+.lm-pscore.four { color: var(--bar4); }
+.lm-pscore.five { color: var(--bar5); }
+.lm-pscore.six { color: var(--Light-Grey); }
+
+/* ——— SCOPE PILLS ——— */
+.player-scope {
+    display: flex;
+    gap: 0.4em;
+    flex-wrap: nowrap;
+    padding: 0.15em 0;
+    overflow-x: auto;
+}
+.player-scope button {
+    background: rgba(255,255,255,0.08);
+    color: var(--Light-Grey);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    padding: 0.38em 0.9em;
+    font-family: KB_Volksans-Bold;
+    font-size: 0.66em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.player-scope button.active {
+    background: var(--White);
+    color: var(--Black);
+    border-color: var(--White);
+}
+
+/* ——— BOTTOM TABS (Kickbase footer) ——— */
+.player-bottombar {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: #0f1012;
+}
+.player-bottombar button {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--Grey);
+    padding: 0.7em 0.5em 0.65em;
+    display: grid;
+    justify-items: center;
+    gap: 0.28em;
+    cursor: pointer;
+    font-family: KB_Volksans-Bold;
+    font-size: 0.66em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.player-bottombar button i {
+    font-size: 1.55em;
+    line-height: 1;
+}
+.player-bottombar button.active {
+    color: var(--White);
+}
+.player-bottombar button.active i {
+    color: var(--White);
+}
+
+.modal-back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--White);
+    cursor: pointer;
+}
+.modal-back-btn i { font-size: 1.1em; }
+
+.player-lastmatch.as-button {
+    background: #1c1e20;
+    color: inherit;
+}
+.leistung-col.as-button {
+    background: transparent;
+}
+.player-lastmatch.as-button,
+.leistung-col.as-button {
+    cursor: pointer;
+    border: none;
+    font: inherit;
+    text-align: left;
+}
+.player-lastmatch.as-button:hover,
+.leistung-col.as-button:hover {
+    filter: brightness(1.15);
+}
+.player-lastmatch.as-button:disabled,
+.leistung-col.as-button:disabled { opacity: 0.5; cursor: default; }
+
+.player-status {
+    text-align: center;
+    color: var(--Light-Grey);
+    padding: 1.2em 0;
+    font-size: 0.9em;
+}
+
+/* ——— LEISTUNG ——— */
+.leistung-wrap {
+    display: grid;
+    gap: 0.6em;
+}
+.leistung-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.15em;
+}
+.leistung-head span {
+    font-family: KB_Volksans-Bold;
+    font-size: 0.62em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--Light-Grey);
+}
+.leistung-scroll {
+    display: flex;
+    gap: 0.7em;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.35em 0.15em 0.9em;
+    align-items: flex-end;
+    scrollbar-width: thin;
+    scrollbar-color: var(--Dark-Grey) transparent;
+}
+.leistung-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.32em;
+    min-width: 3.15em;
+    flex-shrink: 0;
+}
+.leistung-col .lc-top {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.62em;
+    color: var(--Light-Grey);
+}
+.leistung-col .lc-logos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25em;
+    min-height: 1.15em;
+}
+.leistung-col .lc-logos img {
+    width: 1.15em;
+    height: 1.15em;
+    object-fit: contain;
+}
+.leistung-col .lc-result {
+    font-family: KB_Pitch-Still;
+    font-size: 0.78em;
+    color: var(--White);
+}
+.leistung-track {
+    background: rgba(255,255,255,0.06);
+    border-radius: 0.35em;
+    width: 2.15em;
+    height: 11.5em;
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+    position: relative;
+}
+.leistung-fill {
+    width: 100%;
+    border-radius: 0.35em;
+    background: var(--Dark-Grey);
+    position: relative;
+}
+.leistung-fill.one { background: var(--bar1); }
+.leistung-fill.two { background: var(--bar2); }
+.leistung-fill.three { background: var(--bar3); }
+.leistung-fill.four { background: var(--bar4); }
+.leistung-fill.five { background: var(--bar5); }
+.leistung-fill.six { background: #2a2d32; }
+.leistung-col .lc-score {
+    font-family: KB_Pitch-Still;
+    font-size: 0.92em;
+    line-height: 1;
+}
+.lc-score.one { color: var(--bar1); }
+.lc-score.two { color: var(--bar2); }
+.lc-score.three { color: var(--bar3); }
+.lc-score.four { color: var(--bar4); }
+.lc-score.five { color: var(--bar5); }
+.lc-score.six { color: var(--Light-Grey); }
+.leistung-col .lc-sub {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.6em;
+    color: var(--Grey);
+}
+
+/* clickable rows inside meeting modal */
+.player-score-wrapper.as-button {
+    width: 100%;
+    cursor: pointer;
+    border: none;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+}
+.player-score-wrapper.as-button:hover {
+    filter: brightness(1.25);
+}

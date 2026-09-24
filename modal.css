@@ -1,0 +1,108 @@
+@import "./meeting-modal.css";
+
+.modal {
+  z-index: 10;
+  position: fixed;
+  box-sizing: border-box;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  transition: 100ms ease-out;
+  width: 90%;
+  height: 85%;
+  border: .1rem solid var(--Dark-Grey);
+  border-radius: .3rem;
+  background-color: var(--Black)
+}
+.modal.active {
+  transform: translate(-50%, -50%) scale(1);
+  transition: 100ms ease-in-out;
+}
+
+.modal-header {
+  padding: .3rem .3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 10%;
+}
+
+.modal-title {
+  font-size: 1rem;
+  font-weight: normal;
+  padding-left: .5em;
+}
+
+#close-modal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: transparent;
+  border: none;
+}
+
+.modal-body {
+  padding: .3rem .3rem;
+  height: 90%;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+#modal-overlay {
+  position: fixed;
+  opacity: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, .7);
+  pointer-events: none;
+}
+#modal-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.selection-flexbox {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  gap: 1em;
+  height: 100%;
+  width: 100%;
+  overflow-y: auto;
+}
+
+.teamselect-box-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 45%;
+  height: 15%;
+  max-width: 15rem;
+  max-height: 5rem;
+  padding: .5rem;
+  border-radius: .3rem;
+  border: .2rem solid var(--Dark-Grey)
+}
+
+.teamselect-box-label img {
+  height: 100%;
+  width: auto;
+}
+
+.teamselect-box-label p {
+  padding: .5rem;
+}
+
+.teamselect-box-label input {
+  appearance: none;
+}
+
+.teamselect-box-label:has(input:checked) {
+  background-color: var(--Dark-Grey)
+}
+

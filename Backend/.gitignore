@@ -1,0 +1,7 @@
+.env
+cache/
+sb-10-auth-token
+node_modules/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,720 @@
+// myTT player backend: auth cookie handling, file cache, TTR profile, season aggregation.
+// Cross-league (+Pokal) careers come from the SQLite DB filled by warm.js;
+// single-league live aggregation stays as fallback for unwarm leagues.
+// Auth: single shared Premium cookie (sb-10-auth-token), server-side only, auto-refreshed by
+// visiting myTT (no password/captcha needed). Never send the cookie to the frontend.
+
+const fs = require('fs');
+const path = require('path');
+const { getScore } = require('./scoring');
+const db = require('./db');
+
+const BACKEND_DIR = __dirname;
+const ENV_PATH = path.join(BACKEND_DIR, '.env');
+const COOKIE_FILE = path.join(BACKEND_DIR, 'sb-10-auth-token');
+const CACHE_DIR = path.join(BACKEND_DIR, 'cache');
+
+const UA_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'de-DE,de;q=0.9'
+};
+
+// Lightweight authed probe that answers with a fresh Set-Cookie (observed in browser Network tab).
+const REFRESH_URLS = [
+  'https://www.mytischtennis.de/api/statistics/self/ttr-summary?_data=routes%2Fapi%2B%2Fstatistics%2B%2F%24player_id.ttr-summary',
+  'https://www.mytischtennis.de/community?show=everything'
+];
+const REFRESH_INTERVAL_MS = 50 * 60 * 1000;
+const TTR_CACHE_MS = 12 * 60 * 60 * 1000;
+const LEAGUE_CACHE_MS = 60 * 60 * 1000;
+const PLAYER_CACHE_MS = 30 * 60 * 1000;
+
+// ---------- .env handling (no extra dependency) ----------
+function loadEnvFile() {
+  try {
+    const text = fs.readFileSync(ENV_PATH, 'utf-8');
+    for (const line of text.split('\n')) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+    }
+  } catch { /* no .env yet */ }
+}
+
+function persistCookieToEnv(cookie) {
+  try {
+    let text = '';
+    try { text = fs.readFileSync(ENV_PATH, 'utf-8'); } catch { /* create */ }
+    if (/^MYTT_COOKIE=/m.test(text)) {
+      text = text.replace(/^MYTT_COOKIE=.*/m, 'MYTT_COOKIE=' + cookie);
+    } else {
+      if (text && !text.endsWith('\n')) text += '\n';
+      text += 'MYTT_COOKIE=' + cookie + '\n';
+    }
+    fs.writeFileSync(ENV_PATH, text, 'utf-8');
+  } catch (e) {
+    console.error('[mytt] could not persist cookie to .env:', e.message);
+  }
+}
+
+// ---------- cookie jar (memory, seeded from .env or legacy file) ----------
+loadEnvFile();
+// Defensive: users paste with prefixes/quotes/whitespace. Never log the value itself.
+function cleanCookie(v) {
+  return String(v || '').trim()
+    .replace(/^sb-10-auth-token=/i, '')
+    .replace(/^"+|"+$/g, '')
+    .replace(/^'+|'+$/g, '')
+    .trim();
+}
+
+let cookieJar = cleanCookie(process.env.MYTT_COOKIE || '');
+if (!cookieJar) {
+  try { cookieJar = cleanCookie(fs.readFileSync(COOKIE_FILE, 'utf-8')); } catch { /* none */ }
+}
+let lastRefresh = 0;
+let refreshTimer = null;
+
+function hasCookie() {
+  return !!cookieJar;
+}
+
+function setCookieJar(cookie, persist = true) {
+  cookie = cleanCookie(cookie);
+  if (!cookie || cookie === cookieJar) return false;
+  cookieJar = cookie;
+  process.env.MYTT_COOKIE = cookie;
+  if (persist) persistCookieToEnv(cookie);
+  lastRefresh = Date.now();
+  return true;
+}
+
+function cookieHeader() {
+  return `sb-10-auth-token=${cookieJar}`;
+}
+
+function updateCookieFromResponse(res) {
+  try {
+    let raw = [];
+    if (typeof res.headers.getSetCookie === 'function') {
+      raw = res.headers.getSetCookie();
+    } else if (typeof res.headers.raw === 'function') {
+      raw = res.headers.raw()['set-cookie'] || [];
+    } else {
+      const single = res.headers.get('set-cookie');
+      if (single) raw = [single];
+    }
+    for (const entry of raw) {
+      const m = String(entry).match(/sb-10-auth-token=([^;]+)/);
+      if (m && m[1] && m[1] !== cookieJar) {
+        setCookieJar(m[1]);
+        console.log('[mytt] auth cookie refreshed via set-cookie.');
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('[mytt] set-cookie parse failed:', e.message);
+  }
+  return false;
+}
+
+// ---------- myTT fetch wrapper ----------
+function isAuthErrorBody(body) {
+  if (!body || typeof body !== 'object') return false;
+  if (body.error === 'Not authorized') return true;
+  if (body.error && typeof body.error === 'object' && body.error.code === 'PT403') return true;
+  return false;
+}
+
+async function myttFetchJson(url, { auth = false, timeoutMs = 20000 } = {}) {
+  const headers = { ...UA_HEADERS };
+  if (auth && cookieJar) headers['Cookie'] = cookieHeader();
+  let res;
+  try {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    return { ok: false, networkError: true, message: e.message };
+  }
+  updateCookieFromResponse(res);
+  if (res.status === 204) return { ok: false, empty: true, status: 204 };
+  if (res.status === 429) return { ok: false, rateLimited: true, status: 429 };
+  const text = await res.text().catch(() => '');
+  if (!text) return { ok: false, empty: true, status: res.status };
+  let body = null;
+  try { body = JSON.parse(text); } catch { return { ok: false, badJson: true, status: res.status }; }
+  if (!res.ok) return { ok: false, status: res.status, body };
+  if (isAuthErrorBody(body)) return { ok: false, authError: true, status: res.status, body };
+  return { ok: true, status: res.status, body };
+}
+
+// True only if the body proves an authenticated session: no error object and
+// user-specific data present. Fails closed on unknown shapes (reports dead while
+// working, never ok while dead) - HTTP status alone proves nothing with myTT.
+function looksAuthed(body) {
+  if (!body || typeof body !== 'object') return false;
+  if (body.error) return false;
+  return body.data !== undefined || body.ttr !== undefined;
+}
+
+async function refreshProbe(url) {
+  // Raw probe: a Set-Cookie rotation counts even when the body isn't JSON
+  // (e.g. the community HTML page).
+  const headers = { ...UA_HEADERS };
+  if (cookieJar) headers['Cookie'] = cookieHeader();
+  let res;
+  try {
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+  } catch {
+    return { rotated: false, authed: false };
+  }
+  if (updateCookieFromResponse(res)) return { rotated: true, authed: true };
+  const text = await res.text().catch(() => '');
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = null; }
+  if (isAuthErrorBody(body)) return { rotated: false, authed: false, authError: true };
+  if (res.ok && looksAuthed(body)) return { rotated: false, authed: true };
+  return { rotated: false, authed: false };
+}
+
+async function refreshMyttCookie() {
+  if (!cookieJar) return false;
+  for (const url of REFRESH_URLS) {
+    const r = await refreshProbe(url);
+    if (r.rotated || r.authed) {
+      lastRefresh = Date.now();
+      return true;
+    }
+    if (r.authError) break; // session dead, probing further URLs won't help
+  }
+  return false;
+}
+
+function ensureAutoRefresh() {
+  if (refreshTimer || !cookieJar) return;
+  refreshTimer = setInterval(async () => {
+    try {
+      const ok = await refreshMyttCookie();
+      console.log(`[mytt] scheduled cookie refresh: ${ok ? 'ok' : 'FAILED - manual cookie needed'}`);
+    } catch (e) {
+      console.error('[mytt] scheduled refresh error:', e.message);
+    }
+  }, REFRESH_INTERVAL_MS);
+  if (typeof refreshTimer.unref === 'function') refreshTimer.unref();
+}
+
+// ---------- file cache ----------
+function ensureCacheDir() {
+  try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch { /* exists */ }
+}
+
+function cachePath(name) {
+  return path.join(CACHE_DIR, name.replace(/[^A-Za-z0-9_.-]/g, '_') + '.json');
+}
+
+function readCache(name, maxAgeMs) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(cachePath(name), 'utf-8'));
+    if (maxAgeMs !== Infinity && Date.now() - raw.savedAt > maxAgeMs) return null;
+    return raw.data;
+  } catch { return null; }
+}
+
+function writeCache(name, data) {
+  try {
+    ensureCacheDir();
+    fs.writeFileSync(cachePath(name), JSON.stringify({ savedAt: Date.now(), data }), 'utf-8');
+  } catch (e) {
+    console.error('[mytt] cache write failed:', e.message);
+  }
+}
+
+// ---------- public meeting data (no auth needed) ----------
+async function fetchMeetingRaw(meetingId, { forceLive = false } = {}) {
+  const key = `meeting-${meetingId}`;
+  if (!forceLive) {
+    const cached = readCache(key, Infinity);
+    // Finished meetings are immutable -> cache forever. Open ones revalidate after 10 min.
+    if (cached && cached.is_completed) return { data: cached, fromCache: true };
+    if (cached) {
+      try {
+        const age = Date.now() - JSON.parse(fs.readFileSync(cachePath(key), 'utf-8')).savedAt;
+        if (age < 10 * 60 * 1000) return { data: cached, fromCache: true };
+      } catch { /* refetch */ }
+    }
+  }
+  const r = await myttFetchJson(`https://www.mytischtennis.de/api/meeting/${meetingId}/live`);
+  if (!r.ok || !r.body || !r.body.data) return { data: null, rateLimited: !!r.rateLimited };
+  writeCache(key, r.body.data);
+  return { data: r.body.data, fromCache: false };
+}
+
+// League schedule (same source as GET /liga). Flat game list for aggregation.
+function normalizeLeagueMeetings(rawMeetings, headInfos) {
+  return rawMeetings.flatMap(dayObject => {
+    const [[, matchesArray]] = Object.entries(dayObject);
+    if (!Array.isArray(matchesArray)) return [];
+    return matchesArray.map(m => ({
+      meetingId: m.meeting_id,
+      date: m.date,
+      state: m.state === 'done' ? 'done' : 'scheduled',
+      homeName: m.team_home,
+      awayName: m.team_away,
+      homeTeamId: m.team_home_id,
+      awayTeamId: m.team_away_id,
+      homeClubId: m.team_home_club_id,
+      awayClubId: m.team_away_club_id,
+      homeScore: m.matches_won,
+      awayScore: m.matches_lost
+    }));
+  }).sort((a, b) => new Date(a.date) - new Date(b.date));
+}
+
+async function fetchLeagueGames(team, { forceLive = false } = {}) {
+  const filter = team.filter || 'gesamt';
+  const key = `league-${team.groupId}-${filter}`;
+  if (!forceLive) {
+    const cached = readCache(key, LEAGUE_CACHE_MS);
+    if (cached) return { games: cached.games, leagueName: cached.leagueName, fromCache: true };
+  }
+  const url = `https://www.mytischtennis.de/click-tt/${team.association}/${team.season}/ligen/${team.league_slug}/gruppe/${team.groupId}/spielplan/${filter}?_data=routes%2Fclick-tt%2B%2F%24association%2B%2F%24season%2B%2F%24type%2B%2F%24groupname.gruppe.%24urlid%2B%2Fspielplan.%24filter`;
+  const r = await myttFetchJson(url);
+  if (!r.ok || !r.body || !r.body.data) return { games: null, rateLimited: !!r.rateLimited };
+  const games = normalizeLeagueMeetings(r.body.data.meetings || [], r.body.data.head_infos || {});
+  const leagueName = (r.body.data.head_infos || {}).league_name || '';
+  writeCache(key, { games, leagueName });
+  return { games, leagueName, fromCache: false };
+}
+
+// ---------- player computation ----------
+function findParticipation(match, personId) {
+  let side = null;
+  let playerId = null;
+  let firstName = '', lastName = '';
+  for (const g of match) {
+    for (const slot of ['mm_player11', 'mm_player12']) {
+      const p = g[slot];
+      if (p && p.person_id === personId) {
+        side = 'home'; playerId = p.player_id; firstName = p.firstname; lastName = p.lastname;
+      }
+    }
+    for (const slot of ['mm_player21', 'mm_player22']) {
+      const p = g[slot];
+      if (p && p.person_id === personId) {
+        side = 'away'; playerId = p.player_id; firstName = p.firstname; lastName = p.lastname;
+      }
+    }
+    if (side) break;
+  }
+  return side ? { side, playerId, firstName, lastName } : null;
+}
+
+function countGames(match, personId, side) {
+  // Siege/Niederlagen count EVERY game (Einzel + Doppel), win from the player's side.
+  let wins = 0, losses = 0, singleWins = 0, singleLosses = 0, doubleWins = 0, doubleLosses = 0;
+  for (const g of match) {
+    const slots = side === 'home'
+      ? [g.mm_player11, g.mm_player12]
+      : [g.mm_player21, g.mm_player22];
+    const ids = slots.filter(Boolean).map(p => p.person_id);
+    if (!ids.includes(personId)) continue;
+    const homeWon = (g.matches_home || 0) > (g.matches_guest || 0);
+    const won = side === 'home' ? homeWon : !homeWon;
+    if (g.game_type === 'double') { won ? doubleWins++ : doubleLosses++; }
+    else { won ? singleWins++ : singleLosses++; }
+    won ? wins++ : losses++;
+  }
+  return { wins, losses, singleWins, singleLosses, doubleWins, doubleLosses };
+}
+
+function computePlayerMeeting(data, personId) {
+  const part = findParticipation(data.match || [], personId);
+  if (!part) return null;
+  const score = getScore(data.match, { player_id: part.playerId }, part.side);
+  const cnt = countGames(data.match, personId, part.side);
+  const home = part.side === 'home';
+  return {
+    meetingId: data.meeting_id,
+    date: data.start_date || data.scheduled,
+    season: data.season_nickname || '',
+    league: data.group_name || '',
+    side: part.side,
+    firstName: part.firstName,
+    lastName: part.lastName,
+    clubId: home ? data.team_home_club_nr : data.team_guest_club_nr,
+    teamName: home ? data.team_home : data.team_guest,
+    opponentName: home ? data.team_guest : data.team_home,
+    opponentClubId: home ? data.team_guest_club_nr : data.team_home_club_nr,
+    teamHome: data.matches_home,
+    teamAway: data.matches_guest,
+    playerScore: score,
+    ...cnt
+  };
+}
+
+async function mapPool(items, concurrency, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      try { results[idx] = await fn(items[idx], idx); }
+      catch (e) { results[idx] = { __error: e.message }; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+async function getPlayerSeason(personId, team) {
+  const key = `player-${team.groupId}-${personId}`;
+  const cached = readCache(key, PLAYER_CACHE_MS);
+  if (cached) return { ...cached, fromCache: true };
+
+  const league = await fetchLeagueGames(team);
+  if (!league.games) return { error: league.rateLimited ? 'rate-limited' : 'league-unavailable' };
+  const done = league.games.filter(g => g.state === 'done');
+  const raws = await mapPool(done, 4, g => fetchMeetingRaw(g.meetingId));
+
+  const played = [];
+  for (let k = 0; k < done.length; k++) {
+    const raw = raws[k] && raws[k].data;
+    if (!raw || !Array.isArray(raw.match)) continue;
+    const pm = computePlayerMeeting(raw, personId);
+    if (pm) played.push(pm);
+  }
+  played.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const total = played.reduce((s, m) => s + m.playerScore, 0);
+  const siege = played.reduce((s, m) => s + m.wins, 0);
+  const niederlagen = played.reduce((s, m) => s + m.losses, 0);
+  const result = {
+    personId,
+    groupId: String(team.groupId),
+    leagueName: league.leagueName,
+    matchesPlayed: played.length,
+    teamMeetingsDone: done.length,
+    total,
+    avg: played.length ? Math.round(total / played.length) : 0,
+    best: played.length ? Math.max(...played.map(m => m.playerScore)) : 0,
+    siege,
+    niederlagen,
+    matches: played
+  };
+  writeCache(key, result);
+  return { ...result, fromCache: false };
+}
+
+// ---------- TTR profile (auth required) ----------
+function splitName(personName, fallbackFirst, fallbackLast) {
+  if (personName && personName.includes(',')) {
+    const [last, first] = personName.split(',').map(s => s.trim());
+    return { firstName: first || fallbackFirst || '', lastName: last || fallbackLast || '' };
+  }
+  return { firstName: fallbackFirst || '', lastName: fallbackLast || personName || '' };
+}
+
+async function getPlayerProfile(nuid) {
+  // TTR rule (team decision): a stored TTR is fresh if it was saved after the
+  // last 05:00 UTC (= 07:00 CEST). Supabase first, then the ephemeral file
+  // cache with the same cutoff. Only a viewed player's TTR is ever fetched.
+  if (db.available()) {
+    try {
+      const dbCached = await db.getTtr(nuid);
+      if (dbCached && db.ttrIsFresh(dbCached.updatedAt)) return { ...dbCached, fromCache: true };
+    } catch { /* fall through to live */ }
+  }
+  const key = `ttr-${nuid}`;
+  try {
+    const raw = JSON.parse(require('fs').readFileSync(cachePath(key), 'utf-8'));
+    if (raw && raw.data && db.ttrIsFresh(raw.savedAt)) return { ...raw.data, fromCache: true };
+  } catch { /* refetch */ }
+  if (!cookieJar) return { ok: false, needLogin: true, reason: 'no-cookie' };
+
+  async function load() {
+    const [h, d] = await Promise.all([
+      myttFetchJson(`https://www.mytischtennis.de/api/ttr/history/${nuid}`, { auth: true }),
+      myttFetchJson(`https://www.mytischtennis.de/api/statistics/${nuid}/ttr/last_3_months`, { auth: true })
+    ]);
+    return { h, d };
+  }
+
+  let { h, d } = await load();
+  if ((h && h.authError) || (d && d.authError)) {
+    // Session expired -> one silent refresh via normal page visit, then retry once.
+    await refreshMyttCookie();
+    ({ h, d } = await load());
+  }
+  if ((h && h.authError) || (d && d.authError) || (h && h.rateLimited)) {
+    return { ok: false, needLogin: !!(h && h.authError), rateLimited: !!(h && h.rateLimited) };
+  }
+  if (!h || !h.ok || !h.body) return { ok: false, reason: 'history-unavailable' };
+
+  const hb = h.body;
+  let lastGame = null;
+  for (let i = (hb.event || []).length - 1; i >= 0; i--) {
+    const e = hb.event[i];
+    if ((e.match_count || 0) > 0 && e.type !== 'correction') {
+      lastGame = { delta: e.ttr_delta, name: e.event_name, date: e.event_date_time };
+      break;
+    }
+  }
+  const delta = d && d.ok && d.body && d.body.data ? d.body.data : null;
+  const { firstName, lastName } = splitName(hb.person_name);
+  const profile = {
+    ok: true,
+    ttrAuth: true,
+    personId: hb.person_id || nuid,
+    firstName,
+    lastName,
+    clubName: hb.club_name || '',
+    ttr: hb.ttr ?? null,
+    maxTtr: hb.max_ttr ?? null,
+    ttrDate: hb.ttr_date || null,
+    lastGame,
+    delta3m: delta ? { start: delta.start, end: delta.end, delta: delta.delta } : null
+  };
+  writeCache(key, profile);
+  if (db.available()) {
+    try { await db.setTtr(nuid, profile); } catch { /* ephemeral, ignore */ }
+  }
+  return { ...profile, fromCache: false };
+}
+
+function validNuid(nuid) {
+  return typeof nuid === 'string' && /^[A-Za-z0-9-]{2,20}$/.test(nuid);
+}
+
+// Shown only in the player statistics when myTT blocks us.
+const RATE_LIMIT_MSG = 'Error 429: you have reached your limit of updating statistics. Try again in one hour.';
+
+// Minimal fill for a career miss: fetch only the schedules of the club's
+// leagues known to the server, diff against stored meetings, and fetch +
+// store just the missing done meetings (all persons, so everyone's bars
+// benefit). Returns the career or { rateLimited: true }.
+async function fillMissingCareer(nuid, clubId, season, getTeams) {
+  const teams = getTeams().filter(t => db.normalizeSeason(t.season).season === season);
+  if (!teams.length) return null;
+  let filled = false;
+  for (const team of teams) {
+    const league = await fetchLeagueGames(team);
+    if (!league.games) {
+      if (league.rateLimited) return { rateLimited: true };
+      continue;
+    }
+    try { await db.upsertLeague(String(team.groupId), league.leagueName || '', season, 'league', league.games, team.filter || 'gesamt'); } catch { /* ignore */ }
+    const doneIds = league.games.filter(g => g.state === 'done').map(g => String(g.meetingId));
+    let existing = new Set();
+    try { existing = await db.getExistingRawMeetingIds(doneIds); } catch { /* refetch all */ }
+    const missing = league.games.filter(g => g.state === 'done' && !existing.has(String(g.meetingId)));
+    for (const g of missing) {
+      const fetched = await fetchMeetingRaw(g.meetingId);
+      if (!fetched.data || !Array.isArray(fetched.data.match)) {
+        if (fetched.rateLimited) return { rateLimited: true };
+        continue;
+      }
+      const raw = fetched.data;
+      try {
+        await db.upsertMeeting({
+          meeting_id: String(g.meetingId), group_id: String(team.groupId),
+          date: raw.start_date || g.date, state: 'done',
+          home_club: raw.team_home_club_nr ? String(raw.team_home_club_nr) : null,
+          away_club: raw.team_guest_club_nr ? String(raw.team_guest_club_nr) : null,
+          home_name: raw.team_home || g.homeName || '', away_name: raw.team_guest || g.awayName || '',
+          team_home_score: raw.matches_home ?? g.homeScore ?? null,
+          team_away_score: raw.matches_guest ?? g.awayScore ?? null,
+          season, competition: 'league', raw, frozen: false
+        });
+        const persons = new Set();
+        for (const game of raw.match) {
+          for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
+            if (game[s] && game[s].person_id) persons.add(game[s].person_id);
+          }
+        }
+        const rows = [];
+        for (const pid of persons) {
+          const pm = computePlayerMeeting(raw, pid);
+          if (!pm) continue;
+          rows.push({
+            person_id: pid, meeting_id: String(g.meetingId), side: pm.side,
+            player_score: pm.playerScore, wins: pm.wins, losses: pm.losses,
+            single_wins: pm.singleWins, single_losses: pm.singleLosses,
+            double_wins: pm.doubleWins, double_losses: pm.doubleLosses,
+            first_name: pm.firstName, last_name: pm.lastName,
+            club_id: pm.clubId ? String(pm.clubId) : null, team_name: pm.teamName,
+            opponent_name: pm.opponentName, opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
+            date: pm.date, season, competition: 'league'
+          });
+        }
+        await db.upsertAppearances(rows);
+        filled = true;
+      } catch { /* ignore single-meeting failures */ }
+    }
+  }
+  if (!filled) return null;
+  try {
+    const includePokal = true;
+    return await db.attachTeamScores(await db.getCareer(nuid, season, includePokal));
+  } catch { return null; }
+}
+
+// ---------- routes ----------
+function registerPlayerRoutes(app, getTeams) {
+  ensureAutoRefresh();
+  // fire-and-forget refresh on startup so an expired access token heals itself
+  if (cookieJar) refreshMyttCookie().catch(() => {}).then(ok => {
+    if (ok !== undefined) console.log(`[mytt] startup cookie refresh: ${ok ? 'ok' : 'failed'}`);
+  });
+
+  app.get('/player/:nuid/profile', async (req, res) => {
+    const nuid = String(req.params.nuid || '');
+    if (!validNuid(nuid)) return res.status(400).send({ error: 'Invalid player id.' });
+    try {
+      const p = await getPlayerProfile(nuid);
+      if (p.needLogin) return res.status(401).send({ error: 'myTT login required (cookie expired).', needLogin: true });
+      if (p.rateLimited) return res.status(429).send({ error: RATE_LIMIT_MSG });
+      if (!p.ok) return res.status(502).send({ error: 'Failed to load TTR profile.' });
+      res.send(p);
+    } catch (e) {
+      console.error(`Error player profile ${nuid}:`, e);
+      res.status(500).send({ error: `Failed to load profile ${nuid}` });
+    }
+  });
+
+  app.get('/player/:nuid/season', async (req, res) => {
+    const nuid = String(req.params.nuid || '');
+    const groupId = String(req.query.groupId || '');
+    if (!validNuid(nuid)) return res.status(400).send({ error: 'Invalid player id.' });
+    if (!groupId) return res.status(400).send({ error: 'Missing groupId query param.' });
+    const team = getTeams().find(t => String(t.groupId) === groupId);
+    if (!team) return res.status(404).send({ error: `No league with groupId ${groupId} in teams[].` });
+    try {
+      const s = await getPlayerSeason(nuid, team);
+      if (s.error === 'rate-limited') return res.status(429).send({ error: RATE_LIMIT_MSG });
+      if (s.error) return res.status(502).send({ error: 'Failed to load league data.' });
+      res.send(s);
+    } catch (e) {
+      console.error(`Error player season ${nuid}:`, e);
+      res.status(500).send({ error: `Failed to load season ${nuid}` });
+    }
+  });
+
+  // Whole-season career across all warmed teams of a club (leagues + Pokal).
+  // Supabase-first, zero myTT calls when warmed. On a miss, only the missing
+  // done meetings are fetched (minimal fill). 429 is surfaced with the
+  // user-facing message; everything else degrades silently.
+  app.get('/player/:nuid/career', async (req, res) => {
+    const nuid = String(req.params.nuid || '');
+    if (!validNuid(nuid)) return res.status(400).send({ error: 'Invalid player id.' });
+    if (!db.available()) return res.status(404).send({ error: 'Career store unavailable.', notWarmed: true });
+    const { season } = db.normalizeSeason(req.query.season || '');
+    if (!season) return res.status(400).send({ error: 'Missing season query param.' });
+    const includePokal = req.query.includePokal !== '0';
+    const clubId = String(req.query.clubId || '');
+    try {
+      const [profile, stored] = await Promise.all([
+        getPlayerProfile(nuid).catch(() => ({ ok: false, reason: 'profile-error' })),
+        db.attachTeamScores(await db.getCareer(nuid, season, includePokal)).catch(() => null)
+      ]);
+      let career = stored;
+      if (!career && clubId) {
+        const filled = await fillMissingCareer(nuid, clubId, season, getTeams).catch(() => null);
+        if (filled && filled.rateLimited) return res.status(429).send({ error: RATE_LIMIT_MSG });
+        career = filled || null;
+      }
+      if (!career) return res.status(404).send({ error: 'Player not in warmed data yet.', notWarmed: true });
+      const profileRateLimited = profile && profile.rateLimited;
+      res.send({
+        personId: nuid,
+        season,
+        leagueName: `Saison ${season} · alle Teams`,
+        ttrAuth: !!(profile && profile.ok),
+        profile: profile && profile.ok ? profile : null,
+        profileError: profile && !profile.ok
+          ? (profile.needLogin ? 'needLogin' : (profile.rateLimited ? 'rateLimited' : (profile.reason || 'unavailable')))
+          : null,
+        season: {
+          ...career,
+          leagueName: '',
+          teamMeetingsDone: undefined,
+          fromCache: true,
+          fromDb: true
+        }
+      });
+    } catch (e) {
+      console.error(`Error player career ${nuid}:`, e);
+      res.status(500).send({ error: `Failed to load career ${nuid}` });
+    }
+  });
+
+  // Combined call for the player view: scores always work, TTR part degrades gracefully.
+  app.get('/player/:nuid/full', async (req, res) => {
+    const nuid = String(req.params.nuid || '');
+    const groupId = String(req.query.groupId || '');
+    if (!validNuid(nuid)) return res.status(400).send({ error: 'Invalid player id.' });
+    if (!groupId) return res.status(400).send({ error: 'Missing groupId query param.' });
+    const team = getTeams().find(t => String(t.groupId) === groupId);
+    if (!team) return res.status(404).send({ error: `No league with groupId ${groupId} in teams[].` });
+    try {
+      const [profile, season] = await Promise.all([
+        getPlayerProfile(nuid).catch(() => ({ ok: false, reason: 'profile-error' })),
+        getPlayerSeason(nuid, team)
+      ]);
+      if (season.error === 'rate-limited') return res.status(429).send({ error: RATE_LIMIT_MSG });
+      if (season.error) return res.status(502).send({ error: 'Failed to load league data.' });
+      res.send({
+        personId: nuid,
+        groupId,
+        leagueName: season.leagueName || '',
+        ttrAuth: !!(profile && profile.ok),
+        profile: profile && profile.ok ? profile : null,
+        profileError: profile && !profile.ok ? (profile.needLogin ? 'needLogin' : (profile.reason || 'unavailable')) : null,
+        season
+      });
+    } catch (e) {
+      console.error(`Error player full ${nuid}:`, e);
+      res.status(500).send({ error: `Failed to load player ${nuid}` });
+    }
+  });
+
+  app.get('/admin/mytt-status', async (req, res) => {
+    if (!cookieJar) return res.send({ configured: false });
+    const r = await myttFetchJson(REFRESH_URLS[0], { auth: true, timeoutMs: 15000 });
+    res.send({
+      configured: true,
+      probeOk: !!r.ok,
+      authError: !!r.authError,
+      rateLimited: !!r.rateLimited,
+      lastRefresh: lastRefresh ? new Date(lastRefresh).toISOString() : null
+    });
+  });
+
+  // Trusted-users only (same trust level as the whole app): paste a fresh cookie without restart.
+  // Note: express.json() is already applied globally in server.js.
+  app.post('/admin/mytt-cookie', async (req, res) => {
+    const c = cleanCookie(req.body && req.body.cookie);
+    if (!c || c.length < 50) return res.status(400).send({ error: 'Invalid cookie.' });
+    setCookieJar(c);
+    ensureAutoRefresh();
+    const ok = await refreshMyttCookie();
+    res.send({ success: true, probeOk: !!ok });
+  });
+
+  // Stops THIS server process (lets you kill a stale instance holding the port).
+  app.post('/admin/shutdown', (req, res) => {
+    res.send({ shuttingDown: true });
+    console.log('[mytt] shutdown requested via /admin/shutdown, exiting.');
+    setTimeout(() => process.exit(0), 300);
+  });
+}
+
+module.exports = {
+  registerPlayerRoutes,
+  getPlayerProfile,
+  getPlayerSeason,
+  fetchMeetingRaw,
+  fetchLeagueGames,
+  computePlayerMeeting,
+  myttFetchJson,
+  refreshMyttCookie,
+  hasCookie
+};

@@ -1,0 +1,313 @@
+/* TT-Kickbase shared loaders — Kickbase dark aesthetic
+   Spinner (calendar / liga / meeting) + skeleton shimmer (player / scouting) */
+
+:root {
+    --kb-loader-track: var(--Dark-Grey);
+}
+
+/* ---------- Spinner with bouncing ball ---------- */
+.kb-loader-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7em;
+    padding: 2.2em 1em;
+    width: 100%;
+    color: var(--Light-Grey);
+    font-family: KB_Volksans-Regular;
+    font-size: 0.85em;
+    letter-spacing: 0.04em;
+}
+.kb-spinner {
+    position: relative;
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+}
+.kb-spinner::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid var(--kb-loader-track);
+    border-top-color: var(--White);
+    animation: kb-spin 0.85s linear infinite;
+}
+.kb-spinner.kb-spinner-orange::before {
+    border-top-color: var(--Orange);
+}
+.kb-spinner img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    transform: translate(-50%, -50%);
+    animation: kb-ball-bounce 0.85s ease-in-out infinite;
+    pointer-events: none;
+}
+.kb-loader-label {
+    font-size: 0.85em;
+    color: var(--Light-Grey);
+}
+@keyframes kb-spin {
+    to { transform: rotate(360deg); }
+}
+@keyframes kb-ball-bounce {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); }
+    30% { transform: translate(-50%, -62%) scale(1); }
+    55% { transform: translate(-50%, -38%) scale(0.92, 1.08); }
+    75% { transform: translate(-50%, -55%) scale(1); }
+}
+
+/* small inline spinner (header / status rows) */
+.kb-spinner-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55em;
+}
+.kb-spinner-inline .kb-spinner {
+    width: 22px;
+    height: 22px;
+}
+.kb-spinner-inline .kb-spinner::before {
+    border-width: 2px;
+}
+.kb-spinner-inline .kb-spinner img {
+    width: 9px;
+    height: 9px;
+}
+
+/* ---------- Generic skeleton shimmer ---------- */
+.kb-skeleton,
+.kb-skel-line,
+.kb-skel-card,
+.kb-skel-row,
+.kb-skel-ball-track,
+.kb-skel-pill,
+.kb-skel-avatar {
+    position: relative;
+    overflow: hidden;
+    background-color: #1c1e20;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kb-skeleton::after,
+.kb-skel-line::after,
+.kb-skel-card::after,
+.kb-skel-row::after,
+.kb-skel-ball-track::after,
+.kb-skel-pill::after,
+.kb-skel-avatar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 10%, rgba(255, 255, 255, 0.09) 50%, transparent 90%);
+    animation: kb-shimmer 1.25s infinite;
+}
+@keyframes kb-shimmer {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(100%); }
+}
+
+/* ---------- Calendar loading ---------- */
+.calendar {
+    position: relative;
+}
+.calendar.is-loading .calendar-content {
+    opacity: 0.4;
+    pointer-events: none;
+    filter: saturate(0.6);
+}
+.calendar.is-loading #teamselect,
+.calendar.is-loading #prev,
+.calendar.is-loading #next {
+    opacity: 0.5;
+    pointer-events: none;
+}
+.kb-calendar-loader {
+    position: absolute;
+    inset: auto 0 0 0;
+    top: 6.5em;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    pointer-events: none;
+}
+.kb-calendar-loader .kb-loader-wrap {
+    background: rgba(19, 20, 23, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 1em;
+    width: auto;
+    padding: 1.1em 1.6em;
+    backdrop-filter: blur(2px);
+}
+
+/* ---------- Liga loading ---------- */
+.kb-liga-loader {
+    width: min(1000px, 100%);
+    margin: 0 auto;
+}
+.kb-liga-loader .kb-loader-wrap {
+    background-color: #1b1b1e;
+    border-radius: 1.25rem;
+}
+
+/* ---------- Meeting modal loading ---------- */
+.kb-meeting-loader .kb-loader-wrap {
+    min-height: 16em;
+}
+
+/* ---------- Player view skeleton ---------- */
+.kb-player-skel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65em;
+    padding: 0.75em;
+    width: 100%;
+}
+.kb-player-skel .kb-skel-hero {
+    border-radius: 0.7em;
+    padding: 1em 0.85em 0.85em;
+    display: grid;
+    justify-items: center;
+    gap: 0.5em;
+    background: var(--Black);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kb-skel-line {
+    border-radius: 999px;
+    height: 0.8em;
+    border: none;
+    background-color: #232527;
+    min-width: 4em;
+}
+.kb-skel-line.lg { height: 1.9em; width: 55%; border-radius: 0.35em; }
+.kb-skel-line.md { height: 0.85em; width: 38%; }
+.kb-skel-line.sm { height: 0.7em; width: 26%; }
+.kb-skel-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5em;
+}
+.kb-skel-card {
+    border-radius: 0.7em;
+    min-height: 4.2em;
+}
+.kb-skel-triple {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5em;
+}
+.kb-skel-triple .kb-skel-card { min-height: 3.6em; }
+.kb-skel-rows {
+    display: grid;
+    gap: 0.45em;
+}
+.kb-skel-row {
+    border-radius: 0.7em;
+    min-height: 3.1em;
+}
+.kb-skel-bars {
+    display: flex;
+    gap: 0.7em;
+    align-items: flex-end;
+    padding: 0.35em 0.15em 0.9em;
+    overflow: hidden;
+}
+.kb-skel-ball-track {
+    border-radius: 0.35em;
+    width: 2.15em;
+    flex-shrink: 0;
+    background-color: rgba(255, 255, 255, 0.06);
+    border: none;
+}
+.kb-skel-pill {
+    border-radius: 999px;
+    height: 1.5em;
+    width: 4.2em;
+    border: none;
+    background-color: rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+.kb-skel-pills {
+    display: flex;
+    gap: 0.4em;
+    overflow: hidden;
+}
+
+/* ---------- Scouting list skeleton ---------- */
+.scout-row.is-loading {
+    pointer-events: none;
+}
+.scout-row.is-loading .scout-last,
+.scout-row.is-loading .scout-first,
+.scout-row.is-loading .scout-row-points [data-points] {
+    position: relative;
+    overflow: hidden;
+    background-color: #2a2d32;
+    border-radius: 0.35em;
+    color: transparent !important;
+    min-width: 2.5em;
+    min-height: 1em;
+    display: inline-block;
+}
+.scout-row.is-loading .scout-last::after,
+.scout-row.is-loading .scout-first::after,
+.scout-row.is-loading .scout-row-points [data-points]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 10%, rgba(255, 255, 255, 0.14) 50%, transparent 90%);
+    animation: kb-shimmer 1.25s infinite;
+}
+.scout-row.is-loading .scout-last { min-width: 6em; min-height: 1em; }
+.scout-row.is-loading .scout-first { min-width: 4.5em; min-height: 0.8em; margin-top: 0.3em; }
+.scout-row.is-loading img {
+    opacity: 0.35;
+}
+
+/* teamselect modal skeleton rows */
+.teamselect-skel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 45%;
+    max-width: 15rem;
+    min-height: 3.4em;
+    padding: 0.5rem;
+    border-radius: 0.3rem;
+    border: 0.2rem solid var(--Dark-Grey);
+    overflow: hidden;
+    position: relative;
+    background-color: #1c1e20;
+}
+.teamselect-skel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 10%, rgba(255, 255, 255, 0.09) 50%, transparent 90%);
+    animation: kb-shimmer 1.25s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .kb-spinner::before,
+    .kb-spinner img,
+    .kb-skeleton::after,
+    .kb-skel-line::after,
+    .kb-skel-card::after,
+    .kb-skel-row::after,
+    .kb-skel-ball-track::after,
+    .kb-skel-pill::after,
+    .kb-skel-avatar::after,
+    .scout-row.is-loading .scout-last::after,
+    .scout-row.is-loading .scout-first::after,
+    .scout-row.is-loading .scout-row-points [data-points]::after,
+    .teamselect-skel::after {
+        animation: none;
+    }
+    .kb-spinner::before { border-top-color: var(--Grey); }
+}

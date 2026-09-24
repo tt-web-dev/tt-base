@@ -1,0 +1,57 @@
+/* Scout List — under calendar on index.html */
+.scout-list-container {
+    display: grid;
+    gap: 0.45em;
+    max-height: calc(3 * 3.9em + 2 * 0.45em);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--Dark-Grey) transparent;
+    padding-right: 0.15em;
+}
+.scout-row {
+    display: grid;
+    grid-template-columns: 2.4em 1fr auto;
+    align-items: center;
+    gap: 0.65em;
+    background: #1c1e20;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 0.7em;
+    padding: 0.5em 0.75em;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    width: 100%;
+}
+.scout-row:hover { filter: brightness(1.12); }
+.scout-row img {
+    width: 2.1em;
+    height: 2.1em;
+    object-fit: contain;
+}
+.scout-row-names .scout-last {
+    font-family: KB_Pitch-Still;
+    font-size: 0.92em;
+    text-transform: uppercase;
+    line-height: 1;
+}
+.scout-row-names .scout-first {
+    font-family: KB_Volksans-Regular;
+    font-size: 0.72em;
+    color: var(--Light-Grey);
+}
+.scout-row-points {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    font-family: KB_Pitch-Still;
+    font-size: 0.95em;
+    color: var(--Light-Grey);
+}
+.scout-row-points i { font-size: 0.85em; }
+.scout-empty {
+    text-align: center;
+    color: var(--Light-Grey);
+    font-size: 0.85em;
+    padding: 1em 0;
+}

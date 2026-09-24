@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="de">
+<head>
+	<meta charset="UTF-8">
+	<title>TT-Kickbase</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link rel="stylesheet" href="base.css">
+	<link rel="stylesheet" href="rechner.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.0/css/all.min.css" integrity="sha512-ApSLB1Pd3/bZN8fWB/RG9YhN/7bd9Hkf3AGaE2mPfebjrxagjuBtx2GcgdqIlJkUzwylBo61r9Xa9NmgBI0swA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+	<script src="config.js"></script>
+	<script src="rechner.js"></script>
+	<script src="testsave.js"></script>
+	<script src="connectiontest.js"></script>
+</head>
+<body>
+    <header id="header">
+        <nav name="nav">
+            <ul>
+                <li><a href="index.html"><i class="fa-solid fa-house" style="color: rgb(255, 255, 255);"></i></a></li>
+                <li><a href="liga.html">Liga</a></li>
+                <li><a href="punktetabelle.html">Punktetabelle</a></li>
+                <li><a href="settings.html"><i class="fa-solid fa-gear" style="color: rgb(255, 255, 255);"></i></a></li>
+            </ul>
+        </nav>
+        <section>
+        <div class="flex-container">
+            <h1>RECHNER</h1>
+        </div>
+        </section>
+    </header>
+
+    <section class="TTR-Input-Wrapper">
+        <div class="flex-container-column">
+            <p>Spieler:</p>
+            <input type="number" placeholder="TTR" class="number-input" id="TTR1">
+        </div>
+    </section>
+
+    <section>
+        <div class="expandable-wrapper">
+            <input type="checkbox" class="select-checkbox" checked="true" id="dbox0">
+            <div class="expandable">
+                <input class="expand-button" type="checkbox" id="expandable-head1">
+                <label for="expandable-head1">DOPPEL</label>
+                <div class="expandable-content">
+                <div class="table-wrapper">
+                    <table class="left-table">
+            <tbody>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box1"> </td>
+                    <td> <p>Satz 1:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box2"> </td>
+                    <td> <p>Satz 2:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box3"> </td>
+                    <td> <p>Satz 3:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="dbox4"> </td>
+                    <td> <p>Satz 4:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="dbox5"> </td>
+                    <td> <p>Satz 5:</p> </td>
+                </tr>
+            </tbody>
+        </table>
+        <table class="main-table">
+            <tbody>
+                <tr>
+                    <td> <input type="number" class="number-input" id="d1.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="d1.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="d2.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="d2.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="d3.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="d3.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="d4.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="d4.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="d5.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="d5.2"> </td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="expandable-wrapper">
+            <input type="checkbox" class="select-checkbox" checked="true" id="ebox0">
+            <div class="expandable">
+                <input class="expand-button" type="checkbox" id="expandable-head2">
+                <label for="expandable-head2">EINZEL 1</label>
+                <div class="expandable-content">
+                <div class="TTR-Input-Wrapper">
+                    <div class="flex-container-column">
+                        <p>Gegner:</p>
+                        <input type="number" placeholder="TTR" class="number-input" id="TTR3">
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="left-table">
+            <tbody>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box1"> </td>
+                    <td> <p>Satz 1:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box2"> </td>
+                    <td> <p>Satz 2:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box3"> </td>
+                    <td> <p>Satz 3:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="ebox4"> </td>
+                    <td> <p>Satz 4:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="ebox5"> </td>
+                    <td> <p>Satz 5:</p> </td>
+                </tr>
+            </tbody>
+        </table>
+        <table class="main-table">
+            <tbody>
+                <tr>
+                    <td> <input type="number" class="number-input" id="e1.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="e1.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="e2.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="e2.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="e3.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="e3.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="e4.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="e4.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="e5.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="e5.2"> </td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="expandable-wrapper">
+            <input type="checkbox" class="select-checkbox" checked="true" id="eebox0">
+            <div class="expandable">
+                <input class="expand-button" type="checkbox" id="expandable-head3">
+                <label for="expandable-head3">EINZEL 2</label>
+                <div class="expandable-content">
+                <div class="TTR-Input-Wrapper">
+                    <div class="flex-container-column">
+                        <p>Gegner:</p>
+                        <input type="number" placeholder="TTR" class="number-input" id="TTR4">
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="left-table">
+            <tbody>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box1"> </td>
+                    <td> <p>Satz 1:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box2"> </td>
+                    <td> <p>Satz 2:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true" id="box3"> </td>
+                    <td> <p>Satz 3:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="eebox4"> </td>
+                    <td> <p>Satz 4:</p> </td>
+                </tr>
+                <tr>
+                    <td> <input type="checkbox" class="onoffswitch-checkbox" checked="true"  id="eebox5"> </td>
+                    <td> <p>Satz 5:</p> </td>
+                </tr>
+            </tbody>
+        </table>
+        <table class="main-table">
+            <tbody>
+                <tr>
+                    <td> <input type="number" class="number-input" id="ee1.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="ee1.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="ee2.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="ee2.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="ee3.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="ee3.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="ee4.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="ee4.2"> </td>
+                </tr>
+                <tr>
+                    <td> <input type="number" class="number-input" id="ee5.1"> </td>
+                    <td> <p>:</p> </td>
+                    <td> <input type="number" class="number-input" id="ee5.2"> </td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="expandable-wrapper">
+            <div class="expandable">
+                <input class="expand-button" type="checkbox" id="expandable-head4">
+                <label for="expandable-head4">MEHR</label>
+                <div class="expandable-content">
+                    <table class="left-table">
+                        <tbody>
+                            <tr>
+                                <td> <p>unsportliches Verhalten (klein)</p> </td>
+                                <td> <input type="checkbox" class="onoffswitch-checkbox" id="uv.k"> </td>
+                            </tr>
+                            <tr>
+                                <td> <p>unsportliches Verhalten (groß)</p> </td>
+                                <td> <input type="checkbox" class="onoffswitch-checkbox" id="uv.g"> </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="bar-wrapper">
+            <div class="bar">
+                <div id="score-bar"></div>
+            </div>
+            <div class="text">
+                <p class="score" id="score">?</p>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <div class="button">
+            <button class="cta-button" id="rechnen-btn">RECHNEN</button>
+        </div>
+    </section>
+
+    <section>
+        <div class="button">
+            <button onclick="saveData()" class="cta-button" id="testsave-btn">testsave</button>
+        </div>
+        <div class="button">
+            <button onclick="displaySavedData()" class="cta-button" id="testload-btn">testload</button>
+        </div>
+    </section>
+
+</body>
+</html>

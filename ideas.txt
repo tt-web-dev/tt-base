@@ -1,0 +1,33 @@
+Ideas:
+
+!fixes
+-loading animations?
+✅bar-buttons background in "Leistung"-tab
+
+!features
+✅-Player view (->Kickbase Spieler "Übersicht" tab)
+✅-PLayer view (->Kickbase Spieler "Leistung" tab)
+-Team view ("Leistung" tab, but with added scores of whole team)
+
+-Score breakdown (for each player, like in kickbase)
+-normale, vollständige Ansicht der Spiele (-> myTT/Canva posts)
+
+✅-acces player view when tapping on player in meeting modal
+-player search (->myTT API)
+✅-scout list
+
+✅-show whole league (team/league selection; Matchday pages; every meeting of the league on that matchday; exactly like the "Begegnungen" tab on Kickbase; in the style of the meeting modal; open meeting modal when match is clicked)
+-show league table (normal table + table of TT-Kickbase Scores?)
+
+!at the end, with deep planning:
+-database use (nightly "npm run warm"?) (some of the request budget to update database every hour, rest reserved for individual use of website -> e.g. ttr)?
+-check for bad code practices or bugs (with a skill?)
+-optimize site for mobile
+-fine-tune the scoring system (->Punktetabelle)
+
+-ask the ai for what is still needed before publishment
+-ask the ai for what to take into account when deploying (how does the database integrate, what tool is right for this project)
+
+!hosting:
+-move according variables to .env file (port, api-key, backend/frontend URI)
+-correct endpoint values (->localhost:3000)

@@ -1,0 +1,246 @@
+.calendar-container {
+    display:flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.calendar {
+    width:90%;
+    display: flex;
+    flex-direction: column;
+    gap: .75rem;
+
+}
+
+.teamselection {
+    display: flex;
+    justify-content: center;
+}
+#teamselect {
+    width: 90%;
+    padding: .5rem 0;
+    background: transparent;
+    border: transparent;
+    color: var(--White);
+}
+#teamselect:hover {
+    background-color: var(--Dark-Grey);
+    border-radius: .3rem;
+}
+#teamselect:active {
+    background-color: var(--Dark-Grey);
+    border-radius: .3rem;
+}
+
+.calendar-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+}
+
+#prev {
+    background: transparent;
+    border: transparent;
+    padding: 0 25% 0 0;
+}
+
+#next {
+    background: transparent;
+    border: transparent;
+    padding: 0 0 0 25%;
+}
+
+#month-year {
+
+}
+
+.calendar-content {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+.calendar-dayofweek-list {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: .25rem;
+}
+
+.calendar-dayofweek {
+    text-align: center;
+}
+
+.calendar-day-list {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: .25rem;
+}
+
+.calendar-day-list-item {
+    aspect-ratio: 1/1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+
+}
+
+.calendar-day-btn1 {
+    background: transparent;
+    border: 2px solid var(--Light-Grey);
+    border-radius: 7px;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    color: var(--Light-Grey);
+}
+.calendar-day-btn1:hover {
+    color: var(--White);
+    border: 2px solid var(--White);
+}
+
+.calendar-day-btn2 {
+    background: transparent;
+    border: 2px solid var(--Dark-Grey);
+    border-radius: 7px;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    color: var(--Dark-Grey);
+}
+.calendar-day-btn2:hover {
+    color: var(--Grey);
+    border: 2px solid var(--Grey);
+}
+
+.calendar-today-btn {
+    border: 2px solid var(--Light-Grey);
+    border-radius: 7px;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    color: var(--Black);
+    background-color: var(--Light-Grey);
+}
+.calendar-today-btn:hover {
+    color: var(--Light-Grey);
+    background: transparent;
+}
+
+.matchday-btn{
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    padding: 8%;
+    transition: border-color .4s ease;
+}
+.matchday-btn img{
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    display: block;
+}
+.logo-stack{
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+.logo-stack .logo-slide{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    opacity: 0;
+    animation: logoCrossfade 4s infinite;
+}
+.logo-stack .logo-slide:first-child{
+    position: relative;
+    inset: auto;
+}
+.logo-stack.single .logo-slide{
+    position: relative;
+    opacity: 1;
+    animation: none;
+}
+.logo-stack .logo-slide:nth-child(2){
+    animation-delay: 2s;
+}
+.logo-stack .logo-slide:nth-child(3){
+    animation-delay: 4s;
+}
+.logo-stack .logo-slide:nth-child(4){
+    animation-delay: 6s;
+}
+.logo-stack:hover .logo-slide{
+    animation-play-state: paused;
+}
+.logo-stack.js-controlled .logo-slide{
+    animation: none;
+    opacity: 0;
+    transition: opacity .4s ease;
+}
+.logo-stack.js-controlled .logo-slide.active{
+    opacity: 1;
+}
+.logo-badge{
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    min-width: 1.2em;
+    height: 1.2em;
+    padding: 0 .3em;
+    border-radius: 1em;
+    background-color: var(--Dark-Grey);
+    color: var(--White);
+    font-size: .7em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+@keyframes logoCrossfade{
+    0% { opacity: 0; }
+    5% { opacity: 1; }
+    45% { opacity: 1; }
+    50% { opacity: 0; }
+    100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce){
+    .logo-stack .logo-slide{
+        animation: none;
+        opacity: 1;
+        position: relative;
+    }
+    .logo-stack .logo-slide + .logo-slide{
+        display: none;
+    }
+    .logo-stack.js-controlled .logo-slide{
+        transition: none;
+    }
+    .logo-stack.js-controlled .logo-slide + .logo-slide{
+        display: none;
+    }
+}
+.matchday-btn-s {
+    background: transparent;
+    border-color: var(--Purple);
+}
+.matchday-btn-w{
+    border-color: var(--w);
+    color: var(--w);
+}
+.matchday-btn-r{
+    border-color: var(--r);
+    color: var(--r);
+}
+.matchday-btn-l{
+    border-color: var(--l);
+    color: var(--l);
+}
