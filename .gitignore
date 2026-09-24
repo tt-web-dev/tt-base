@@ -141,3 +141,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# local SQLite leftovers (belt & braces next to Backend/.gitignore)
+*.db
+*.db-wal
+*.db-shm
+
+# myTT session token (if one ever lands outside Backend/)
+sb-10-auth-token
