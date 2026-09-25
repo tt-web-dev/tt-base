@@ -36,6 +36,41 @@ function available() {
   return !!(createClient && SUPABASE_URL && SUPABASE_KEY);
 }
 
+// Central write path: Supabase errors are logged with table + operation so a
+// failing nightly warm goes red with the real reason (missing table, RLS
+// denial, bad key) instead of silently storing nothing.
+async function write(op, table, query) {
+  try {
+    const { error } = await query;
+    if (error) {
+      console.error(`[db] ${op} "${table}" failed: ${error.message || error}`);
+      return { ok: false, error: error.message || String(error) };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error(`[db] ${op} "${table}" threw: ${e.message || e}`);
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
+// Probe used by warm.js preflight and smoke tests: verifies the schema exists
+// AND this key may write. Returns { ok, error }.
+async function preflightWrite() {
+  const sb = getClient();
+  if (!sb) return { ok: false, error: 'Supabase not configured (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing).' };
+  const probeKey = 'preflight-write-probe';
+  const w = await write('upsert', 'meta', sb.from('meta').upsert({ k: probeKey, v: 'ok' }, { onConflict: 'k' }));
+  if (!w.ok) return w;
+  const { data, error } = await sb.from('meta').select('v').eq('k', probeKey).maybeSingle();
+  if (error || !data) {
+    const msg = error ? error.message : 'probe row missing after write';
+    console.error(`[db] preflight read-back "meta" failed: ${msg}`);
+    return { ok: false, error: msg };
+  }
+  await sb.from('meta').delete().eq('k', probeKey);
+  return { ok: true };
+}
+
 // Last 05:00 UTC (07:00 CEST). A TTR stored after this is still fresh.
 function ttrCutoffMs(nowMs = Date.now()) {
   const d = new Date(nowMs);
@@ -79,42 +114,42 @@ async function metaGet(key) {
 async function metaSet(key, value) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('meta').upsert({ k: key, v: String(value) }, { onConflict: 'k' });
+  await write('upsert', 'meta', sb.from('meta').upsert({ k: key, v: String(value) }, { onConflict: 'k' }));
 }
 
 async function upsertClub(clubId, name, org) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('clubs').upsert(
+  await write('upsert', 'clubs', sb.from('clubs').upsert(
     { club_id: String(clubId), name: name || '', org: org || '', updated_at: now() },
     { onConflict: 'club_id' }
-  );
+  ));
 }
 
 async function upsertTeam(t) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('teams').upsert(
+  await write('upsert', 'teams', sb.from('teams').upsert(
     {
       team_id: t.team_id, club_id: t.club_id, group_id: t.group_id,
       team_name: t.team_name || '', league_name: t.league_name || '',
       season: t.season || '', competition: t.competition || 'league', updated_at: now()
     },
     { onConflict: 'team_id' }
-  );
+  ));
 }
 
 async function upsertLeague(groupId, leagueName, season, competition, schedule, filter = 'gesamt') {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('leagues').upsert(
+  await write('upsert', 'leagues', sb.from('leagues').upsert(
     {
       group_id: String(groupId), filter: filter || 'gesamt',
       league_name: leagueName || '', season: season || '',
       competition: competition || 'league', schedule_json: schedule || null, updated_at: now()
     },
     { onConflict: 'group_id,filter' }
-  );
+  ));
 }
 
 // Updates only the schedule payload of a league (used by live refresh in server.js).
@@ -123,8 +158,8 @@ async function updateLeagueSchedule(groupId, schedule, leagueName, filter = 'ges
   if (!sb) return;
   const patch = { schedule_json: schedule || null, updated_at: now() };
   if (leagueName) patch.league_name = leagueName;
-  await sb.from('leagues').update(patch)
-    .eq('group_id', String(groupId)).eq('filter', filter || 'gesamt');
+  await write('update', 'leagues', sb.from('leagues').update(patch)
+    .eq('group_id', String(groupId)).eq('filter', filter || 'gesamt'));
 }
 
 async function getLeague(groupId, filter = 'gesamt') {
@@ -159,7 +194,7 @@ async function getSchedulesByGroups(groupIds, filter = 'gesamt') {
 async function upsertMeeting(m) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('meetings').upsert(
+  await write('upsert', 'meetings', sb.from('meetings').upsert(
     {
       meeting_id: String(m.meeting_id), group_id: m.group_id ? String(m.group_id) : null,
       date: m.date || null, state: m.state || null,
@@ -173,7 +208,7 @@ async function upsertMeeting(m) {
       updated_at: now()
     },
     { onConflict: 'meeting_id' }
-  );
+  ));
 }
 
 async function getMeeting(meetingId) {
@@ -202,7 +237,7 @@ function appearanceRow(a) {
 async function upsertAppearance(a) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('appearances').upsert(appearanceRow(a), { onConflict: 'person_id,meeting_id' });
+  await write('upsert', 'appearances', sb.from('appearances').upsert(appearanceRow(a), { onConflict: 'person_id,meeting_id' }));
 }
 
 async function upsertAppearances(list) {
@@ -210,7 +245,7 @@ async function upsertAppearances(list) {
   if (!sb || !list.length) return;
   for (let i = 0; i < list.length; i += 200) {
     const chunk = list.slice(i, i + 200).map(appearanceRow);
-    await sb.from('appearances').upsert(chunk, { onConflict: 'person_id,meeting_id' });
+    await write('upsert', 'appearances', sb.from('appearances').upsert(chunk, { onConflict: 'person_id,meeting_id' }));
   }
 }
 
@@ -308,10 +343,10 @@ async function getTtr(personId) {
 async function setTtr(personId, profile) {
   const sb = getClient();
   if (!sb) return;
-  await sb.from('ttr').upsert(
+  await write('upsert', 'ttr', sb.from('ttr').upsert(
     { person_id: String(personId), profile_json: profile, updated_at: now() },
     { onConflict: 'person_id' }
-  );
+  ));
 }
 
 // Set of meeting ids that already have raw JSON stored (one round trip).
@@ -387,6 +422,7 @@ async function stats() {
 
 module.exports = {
   available,
+  preflightWrite,
   ttrCutoffMs,
   ttrIsFresh,
   CORRECTION_WINDOW_MS,

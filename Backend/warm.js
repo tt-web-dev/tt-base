@@ -47,6 +47,17 @@ async function main() {
   }
   const { season: target } = db.normalizeSeason(opt.season);
   const slugSeason = target.replace('/', '--');
+
+  // Preflight: verify Supabase schema + write permission BEFORE spending any
+  // of the ~108 myTT calls. A failing DB used to burn the whole budget green.
+  const probe = await db.preflightWrite().catch(e => ({ ok: false, error: e.message }));
+  if (!probe.ok) {
+    console.error(`[warm] Supabase preflight failed: ${probe.error}`);
+    console.error('[warm] Fix: run supabase-schema.sql, use the service_role key (not anon), check SUPABASE_URL. Aborting with zero myTT calls spent.');
+    process.exit(1);
+  }
+  console.log('[warm] Supabase preflight ok (schema + write permission).');
+
   const intervalMs = Math.round(3600000 / opt.rqph);
   let pausesLeft = opt.retries;
   console.log(`[warm] club=${opt.club} org=${opt.org} season=${target} pokal=${opt.pokal} cap=${opt.rqph}/h retries=${opt.retries}`);
@@ -214,7 +225,7 @@ async function main() {
       }));
     }
 
-    console.log(`[warm] done. ~${reqCount} myTT requests used. players seen: ${progress.players.size} (new: ${progress.meetingsNew}, corrected: ${progress.meetingsCorrected})`);
+    console.log(`[warm] done. ~${reqCount} myTT requests used. computed in memory: ${progress.players.size} players (new: ${progress.meetingsNew}, corrected: ${progress.meetingsCorrected}).`);
     const donePayload = JSON.stringify({
       teamsDone: progress.teamsDone, teamsTotal: progress.teamsTotal,
       meetingsFetched: progress.meetingsDone, meetingsNew: progress.meetingsNew,
@@ -223,7 +234,7 @@ async function main() {
     await db.metaSet(`warm-${opt.club}-${target}`, donePayload);
     await db.metaSet('warm-last-run', donePayload);
     const s = await db.stats();
-    console.log('[warm] db:', JSON.stringify(s));
+    console.log('[warm] verified stored in Supabase:', JSON.stringify(s));
   } catch (e) {
     if (e instanceof RatePaused) {
       console.log('[warm] paused by rate limit - next night resumes automatically.');
