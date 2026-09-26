@@ -1,0 +1,15 @@
+{
+  "name": "tt-kickbase",
+  "private": true,
+  "version": "1.0.0",
+  "description": "TT-Kickbase: Kickbase-style fantasy app for table tennis. App code lives in Backend/, static frontend at repo root (served by the backend).",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "npm install --prefix Backend",
+    "start": "npm start --prefix Backend",
+    "warm": "npm run warm --prefix Backend",
+    "rescore": "npm run rescore --prefix Backend"
+  }
+}
