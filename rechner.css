@@ -153,9 +153,13 @@ input::-webkit-inner-spin-button {
 .select-checkbox {
     display: flex;
     position: sticky;
-    top: 0;
+    top: var(--nav-h, 57px);
     height: 100%;
     margin: 7px .5em 0 .2em;
+}
+
+body.nav-hidden .select-checkbox {
+    top: 0;
 }
 
 .onoffswitch-checkbox, .select-checkbox {

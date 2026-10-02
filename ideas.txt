@@ -1,7 +1,7 @@
 Ideas:
 
 !fixes
--loading animations?
+✅-loading animations
 ✅bar-buttons background in "Leistung"-tab
 
 !features
@@ -20,14 +20,14 @@ Ideas:
 -show league table (normal table + table of TT-Kickbase Scores?)
 
 !at the end, with deep planning:
--database use (nightly "npm run warm"?) (some of the request budget to update database every hour, rest reserved for individual use of website -> e.g. ttr)?
+✅-database use (nightly "npm run warm"?) (some of the request budget to update database every hour, rest reserved for individual use of website -> e.g. ttr)?
 -check for bad code practices or bugs (with a skill?)
 -optimize site for mobile
--fine-tune the scoring system (->Punktetabelle)
+✅-fine-tune the scoring system (->Punktetabelle)
 
 -ask the ai for what is still needed before publishment
--ask the ai for what to take into account when deploying (how does the database integrate, what tool is right for this project)
+✅-ask the ai for what to take into account when deploying (how does the database integrate, what tool is right for this project)
 
 !hosting:
--move according variables to .env file (port, api-key, backend/frontend URI)
--correct endpoint values (->localhost:3000)
+✅-move according variables to .env file (port, api-key, backend/frontend URI)
+✅-correct endpoint values (->localhost:3000)

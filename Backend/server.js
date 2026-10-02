@@ -410,27 +410,37 @@ app.get('/matchdays', async (req, res) => {
   } catch { /* fall through to live */ }
 
   try {
-    // 1. Create an array of fetch Promises for each team
+    // One fetch per active team, isolated: a single dead endpoint (archived
+    // season, transient {data:null}, HTTP error) contributes zero meetings
+    // instead of failing the whole calendar (Promise.all would reject all).
     const fetchPromises = filterActive(teams).map(team => {
       const url = `https://www.mytischtennis.de/click-tt/${team.association}/${team.season}/ligen/${team.league_slug}/gruppe/${team.groupId}/mannschaft/${team.teamId}/${team.teamName}/spielplan/${team.filter}?_data=routes%2Fclick-tt%2B%2F%24association%2B%2F%24season%2B%2F%24type%2B%2F%28%24groupname%29.gruppe.%24urlid_.mannschaft.%24teamid.%24teamname%2B%2Fspielplan.%24filter`;
-      
+
       return fetch(url)
         .then(response => {
           if (!response.ok) {
             throw new Error(`Fetch error: ${response.status}`);
           }
-          return response.json(); 
+          return response.json();
         })
         .then(data => {
-          // Return the specific meetings data so Promise.all can collect it
-          return data.data.meetings_excerpt.meetings;
+          const excerpt = data?.data?.meetings_excerpt?.meetings;
+          if (!Array.isArray(excerpt)) {
+            console.log(`[matchdays] group ${team.groupId} (${team.anzeigeName}): upstream payload unusable (${data?.data === null ? 'null data' : 'missing meetings_excerpt'}) - team skipped.`);
+            return [];
+          }
+          return excerpt;
+        })
+        .catch(error => {
+          console.log(`[matchdays] group ${team.groupId} (${team.anzeigeName}): ${error.message} - team skipped.`);
+          return [];
         });
     });
 
-    // Wait for all fetches to finish
+    // Wait for all fetches to finish (never rejects: failures become [])
     const results = await Promise.all(fetchPromises);
 
-    // .flat() to combine them into one single array of meetings. 
+    // .flat() to combine them into one single array of meetings.
     const meetings = results.flat();
     
     //format the array into frontend-readable-format
@@ -445,7 +455,8 @@ app.get('/matchdays', async (req, res) => {
     })
 
     // Now send the fully populated array to the frontend
-    console.log(`Sending ${formattedMeetings.length} formatted matchdays.`);
+    const okTeams = results.filter(r => r.length).length;
+    console.log(`Sending ${formattedMeetings.length} formatted matchdays (${okTeams}/${fetchPromises.length} teams healthy).`);
     res.send(formattedMeetings);
 
   } catch (error) {

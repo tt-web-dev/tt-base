@@ -3,10 +3,22 @@
 
 .liga-stickybar {
     position: sticky;
-    top: 0;
+    top: var(--nav-h, 57px);
     z-index: 5;
     background-color: var(--base-color);
     padding: .5rem 0 .75rem 0;
+    transition: top .25s ease;
+}
+
+/* when the smart header hides, tabs slide to the very top */
+body.nav-hidden .liga-stickybar {
+    top: 0;
+}
+
+@media (prefers-reduced-motion: reduce){
+    .liga-stickybar{
+        transition: none;
+    }
 }
 
 /* overlay must cover the sticky bar, but stay below the modal (z-index 10) */
@@ -120,7 +132,11 @@
     display: flex;
     flex-direction: column;
     gap: .8rem;
-    scroll-margin-top: 9rem;
+    scroll-margin-top: calc(var(--nav-h, 57px) + 7.5rem);
+}
+
+body.nav-hidden .spieltag-card {
+    scroll-margin-top: 7.5rem;
 }
 
 .spieltag-title {

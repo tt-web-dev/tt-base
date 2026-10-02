@@ -177,6 +177,7 @@ function switchView(view) {
     const tableEl = document.getElementById('liga-table')
     if (listEl) listEl.hidden = isTable
     if (tableEl) tableEl.hidden = !isTable
+    window.__keepNavVisibleBriefly?.(500)
     window.scrollTo({ top: 0 })
     if (isTable) {
         loadTable(selectedGroupId)
@@ -397,6 +398,7 @@ function jumpToNearest() {
         target = document.getElementById(`spieltag-${last.spieltag}`)
     }
     if (target) {
+        window.__keepNavVisibleBriefly?.(800)
         requestAnimationFrame(() => {
             setTimeout(() => target.scrollIntoView({ block: 'start' }), 50)
         })

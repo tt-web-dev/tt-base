@@ -46,6 +46,7 @@
 
 :root{
     --base-color: #131417;
+    --nav-h: 57px;
     --text-color: #ffffff;
     --primary-color: #ffc06e;
     --secondary-color: #8D8DFF;
@@ -81,7 +82,7 @@ html{
 }
 
 body{
-    padding: 1em;
+    padding: var(--nav-h) 1em 1em 1em;
     background-color: var(--base-color);
 
 }
@@ -90,9 +91,40 @@ h1, h2, h3{
     font-family: KB_Pitch-Still;
 }
 
+/* Smart header: nav is fixed so it can stick beyond its <header> parent.
+   Titles inside <header> (.flex-container) still scroll away normally. */
 nav{
-    margin: 1em auto 3em auto;
-    width: min(1000px, 100%);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 6;
+    margin: 0;
+    padding: 1em;
+    width: 100%;
+    background-color: var(--base-color);
+    transition: transform .25s ease;
+}
+
+/* smart header: hidden while scrolling down, shown on scroll up (see header.js) */
+body.nav-hidden nav{
+    transform: translateY(-101%);
+}
+
+/* header itself stays in flow (titles scroll away); small spacer since nav is fixed */
+header#header{
+    padding-top: 1em;
+}
+
+@media (prefers-reduced-motion: reduce){
+    nav{
+        transition: none;
+    }
+}
+
+/* overlay must cover the sticky nav, modal above overlay */
+#modal-overlay{
+    z-index: 8;
 }
 
 nav ul{
@@ -100,6 +132,8 @@ nav ul{
     align-items: center;
     list-style: none;
     justify-content: space-between;
+    width: min(1000px, 100%);
+    margin: 0 auto;
 }
 
 nav li:firstchild {
