@@ -66,7 +66,7 @@ function renderRow(player) {
 
     btn.append(logo, names, pts);
     btn.addEventListener('click', () => {
-        openPlayerView(player.personId, { clubId: player.clubId, season: player.season });
+        openPlayerView(player.personId, { clubId: player.clubId, season: player.season, groupId: player.groupId || '' });
     });
 
     // async fill points (shimmer until resolved)

@@ -9,19 +9,8 @@
 // "CONNECTION WORKING" at the end means the nightly warm can store data.
 // Anything else prints the exact Supabase error message telling you why not.
 
-const fs = require('fs');
-const path = require('path');
-
 // Pick up Backend/.env for local runs (GitHub Actions / Render use real env).
-(function loadEnvFile() {
-  try {
-    const text = fs.readFileSync(path.join(__dirname, '.env'), 'utf-8');
-    for (const line of text.split('\n')) {
-      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
-      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
-    }
-  } catch { /* no .env file, use real env */ }
-})();
+require('./env');
 
 const URL = process.env.SUPABASE_URL || '';
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';

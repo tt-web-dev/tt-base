@@ -45,10 +45,17 @@ export function openPlayerView(personId, opts = {}) {
 }
 
 function apiRaw(path) {
-    return fetch(`${API}${path}`).then(res => {
+    return fetch(`${API}${path}`).then(async res => {
         if (!res.ok) {
             const err = new Error(`Server Error: ${res.status}`);
             err.status = res.status;
+            try {
+                const body = await res.clone().json();
+                if (body && typeof body === 'object') {
+                    if (body.notWarmed === true) err.notWarmed = true;
+                    if (typeof body.error === 'string' && body.error) err.serverError = body.error;
+                }
+            } catch { /* non-JSON error page — status alone must suffice */ }
             throw err;
         }
         return res.json();
@@ -68,6 +75,10 @@ async function loadPlayer() {
             // statistics; every other view falls back silently.
             if (e && e.status === 429) {
                 body.appendChild(statusEl('Error 429: you have reached your limit of updating statistics. Try again in one hour.'));
+            } else if (e && e.notWarmed && e.serverError === 'Career store unavailable.') {
+                body.appendChild(statusEl('Die Spielerdatenbank ist nicht erreichbar. Lokal: Backend mit Backend/.env starten (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).'));
+            } else if (e && e.notWarmed) {
+                body.appendChild(statusEl('Dieser Spieler ist noch nicht in den gespeicherten Daten. Öffne ihn einmal aus einem Spiel heraus oder warte auf den nächtlichen Datenlauf.'));
             } else {
                 body.appendChild(statusEl('Spielerdaten konnten nicht geladen werden.'));
             }
@@ -84,6 +95,9 @@ async function loadCareerOrFull() {
             return await apiRaw(`/player/${nuid}/career?clubId=${encodeURIComponent(currentMeta.clubId)}&season=${encodeURIComponent(currentMeta.season)}&includePokal=1`);
         } catch (e) {
             if (e.status !== 404) throw e;
+            // Ohne groupId kann der /full-Fallback nur mit 400 scheitern —
+            // Career-Fehler (inkl. notWarmed-Kennung) direkt weitergeben.
+            if (!currentMeta.groupId) throw e;
         }
     }
     return apiRaw(`/player/${nuid}/full?groupId=${encodeURIComponent(currentMeta.groupId)}`);
@@ -426,7 +440,8 @@ function render() {
                 firstName: firstName,
                 lastName: lastName,
                 clubId: clubId,
-                season: currentMeta.season || ''
+                season: currentMeta.season || '',
+                groupId: currentMeta.groupId || ''
             });
             const nowActive = !wasActive;
             scouted.classList.toggle('is-active', nowActive);

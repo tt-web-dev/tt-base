@@ -1,7 +1,12 @@
+// Must run before process.env is read below (SUPABASE_URL / KEY).
+require('./env');
+
 // Supabase/Postgres store for cross-league (+Pokal) player data.
 // Replaces the local SQLite file: every read/write goes over the web to
 // Supabase via @supabase/supabase-js using the service_role key (server-side
 // only — never expose it to the browser).
+//
+// Local runs pick up Backend/.env (see env.js); hosting uses real env vars.
 //
 // Conventions (fixed by team decision):
 // * "German time" means fixed CEST = UTC+2, so TTR values expire at 05:00 UTC

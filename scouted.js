@@ -29,6 +29,7 @@ export function addScouted(player) {
         lastName: player.lastName || '',
         clubId: player.clubId || '',
         season: player.season || '',
+        groupId: player.groupId || '',
         addedAt: Date.now()
     });
     save(arr);
