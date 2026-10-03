@@ -111,6 +111,117 @@ function shortLeague(name) {
         .trim();
 }
 
+//Team-Pills statt Liga-Pills: Gruppierung bleibt die Liga (1 Gruppe = 1 Team),
+//nur das Label zeigt Alter + Rang, z.B. "U19 I" oder "Herren III".
+//LEAGUE_LABEL_MODE = 'team' (neu) oder 'league' (alt, shortLeague-Pills).
+const LEAGUE_LABEL_MODE = 'team';
+const POKAL_KEY = '__pokal';
+
+//Reihenfolge ist wichtig: spezifische Klassen (Mädchen, Seniorinnen) vor den
+//allgemeinen (Jugend, Senioren), Damen vor Erwachsene als Fallback.
+const AGE_CLASS_TABLE = [
+    [/mädchen\s*15/i, 'U15 Mädchen'],
+    [/mädchen\s*13/i, 'U13 Mädchen'],
+    [/seniorinnen\s*70/i, 'Ü70'],
+    [/seniorinnen\s*60/i, 'Ü60'],
+    [/seniorinnen\s*50/i, 'Ü50'],
+    [/seniorinnen\s*40/i, 'Ü40'],
+    [/senioren\s*70/i, 'Ü70'],
+    [/senioren\s*60/i, 'Ü60'],
+    [/senioren\s*50/i, 'Ü50'],
+    [/senioren\s*40/i, 'Ü40'],
+    [/jugend\s*19|\bj\s*19\b/i, 'U19'],
+    [/jugend\s*15|\bj\s*15\b/i, 'U15'],
+    [/jugend\s*13|\bj\s*13\b/i, 'U13'],
+    [/jugend\s*11|\bj\s*11\b/i, 'U11'],
+    [/damen/i, 'Damen'],
+    [/erwachsene/i, 'Herren'],
+];
+
+function matchAgeClass(league) {
+    const s = String(league || '');
+    for (const [re, label] of AGE_CLASS_TABLE) {
+        if (re.test(s)) return label;
+    }
+    return '';
+}
+
+//Dynamische Arabisch -> Römisch Umwandlung, funktioniert für jede Teamanzahl
+//(1=I, 2=II, 3=III, 4=IV, 5=V, 6=VI, 9=IX, 10=X, ...).
+function toRoman(num) {
+    num = Math.floor(Number(num));
+    if (!Number.isFinite(num) || num < 1) return '';
+    const table = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let out = '';
+    for (const [value, symbol] of table) {
+        while (num >= value) {
+            out += symbol;
+            num -= value;
+        }
+    }
+    return out;
+}
+
+//Rang aus dem eigenen teamName, z.B. "TSV Bonn rrh. III" -> "III".
+//Erste Mannschaften haben kein Suffix ("TSV Bonn rrh.") -> "I".
+//Römisch wird übernommen, Arabisch wird dynamisch umgewandelt.
+function parseTeamRank(teamName) {
+    const clean = String(teamName || '').replace(/[\s.]+$/, '').trim();
+    const m = clean.match(/[\s.]+(\d{1,2}|[IVXLCDM]{1,4})$/i);
+    if (!m) return 'I';
+    const token = m[1].toUpperCase();
+    if (/^\d{1,2}$/.test(token)) {
+        const n = parseInt(token, 10);
+        if (n >= 1 && n <= 99) return toRoman(n);
+        return 'I';
+    }
+    if (/^(X{0,3})(IX|IV|V?I{0,3})$/.test(token)) return token;
+    return 'I';
+}
+
+function shortTeamLabel(league, teamName) {
+    const age = matchAgeClass(league);
+    if (age) return `${age} ${parseTeamRank(teamName)}`;
+    return shortLeague(league);
+}
+
+function isPokalMatch(m) {
+    return String(m?.competition || '').toLowerCase() === 'pokal';
+}
+
+//Filter-Key: Pokal wird zu genau einer "POKAL"-Pille zusammengefasst,
+//alle anderen Spiele behalten ihren Liga-Namen als Key (1 Gruppe = 1 Team).
+function filterKey(m) {
+    if (isPokalMatch(m)) return POKAL_KEY;
+    return m.league || 'Liga';
+}
+
+//Eindeutige Filter in chronologischer Reihenfolge, mit erstem teamName als Label-Basis.
+function distinctFilterKeys(matches) {
+    const seen = [];
+    const rep = new Map();
+    for (const m of matches) {
+        const key = filterKey(m);
+        if (!seen.includes(key)) {
+            seen.push(key);
+            rep.set(key, { key, league: m.league || '', teamName: m.teamName || '' });
+        }
+    }
+    return seen.map(k => rep.get(k));
+}
+
+function filterMatchesByKey(allMatches, key) {
+    if (key === 'alle') return allMatches;
+    if (key === POKAL_KEY) return allMatches.filter(isPokalMatch);
+    return allMatches.filter(m => (m.league || 'Liga') === key);
+}
+
+function labelForMatch(m) {
+    if (LEAGUE_LABEL_MODE !== 'team') return m.league ? shortLeague(m.league) : '';
+    if (isPokalMatch(m)) return 'POKAL';
+    return shortTeamLabel(m.league, m.teamName);
+}
+
 //Aggregate über eine (ggf. gefilterte) Matchliste
 function aggregate(matches) {
     const total = matches.reduce((s, m) => s + (m.playerScore || 0), 0);
@@ -214,8 +325,15 @@ function render() {
     const { profile, season } = currentData;
     const allMatches = [...(season.matches || [])].sort((a, b) => new Date(a.date) - new Date(b.date));
     const leagues = distinctLeagues(allMatches);
-    if (currentLeague !== 'alle' && !leagues.includes(currentLeague)) currentLeague = 'alle';
-    const matches = currentLeague === 'alle' ? allMatches : allMatches.filter(m => (m.league || 'Liga') === currentLeague);
+    const teamMode = LEAGUE_LABEL_MODE === 'team';
+    //Team-Modus: 1 Filter-Key pro Liga (1 Gruppe = 1 Team) + genau 1 POKAL-Key.
+    //Gruppierung bleibt liga-identisch, nur Labels und Pokal-Zusammenfassung sind neu.
+    const filterKeys = teamMode ? distinctFilterKeys(allMatches) : [];
+    const validKeys = teamMode ? ['alle', ...filterKeys.map(f => f.key)] : ['alle', ...leagues];
+    if (!validKeys.includes(currentLeague)) currentLeague = 'alle';
+    const matches = teamMode
+        ? filterMatchesByKey(allMatches, currentLeague)
+        : (currentLeague === 'alle' ? allMatches : allMatches.filter(m => (m.league || 'Liga') === currentLeague));
     const agg = aggregate(matches);
     const last = matches[matches.length - 1];
     const firstName = profile?.firstName || last?.firstName || currentMeta.firstName || '';
@@ -248,7 +366,8 @@ function render() {
         phLast.textContent = lastName;
         heroNames.append(phFirst, phLast);
         hero.appendChild(heroNames);
-        if (leagues.length > 1) {
+        const pillCount = teamMode ? filterKeys.length : leagues.length;
+        if (pillCount > 1) {
             const heroPills = document.createElement('div');
             heroPills.className = 'player-hero-badges';
             const mkHeroPill = (label, active, fullName) => {
@@ -262,10 +381,21 @@ function render() {
             const bAll = mkHeroPill('ALLE', currentLeague === 'alle', 'Alle Ligen und Pokal');
             bAll.addEventListener('click', () => { if (currentLeague !== 'alle') { currentLeague = 'alle'; render(); }});
             heroPills.appendChild(bAll);
+            if (teamMode) {
+                for (const f of filterKeys) {
+                    const isPokal = f.key === POKAL_KEY;
+                    const label = isPokal ? 'POKAL' : shortTeamLabel(f.league, f.teamName);
+                    const full = isPokal ? 'Alle Pokalspiele' : `${f.teamName ? f.teamName + ' · ' : ''}${f.league}`;
+                    const b = mkHeroPill(label, currentLeague === f.key, full);
+                    b.addEventListener('click', () => { if (currentLeague !== f.key) { currentLeague = f.key; render(); }});
+                    heroPills.appendChild(b);
+                }
+            } else {
             for (const name of leagues) {
                 const b = mkHeroPill(shortLeague(name), currentLeague === name, name);
                 b.addEventListener('click', () => { if (currentLeague !== name) { currentLeague = name; render(); }});
                 heroPills.appendChild(b);
+            }
             }
             hero.appendChild(heroPills);
         }
@@ -333,8 +463,8 @@ function render() {
             form.appendChild(s);
         }
         scroll.appendChild(form);
-    } else if (leagues.length > 1) {
-        // Leistung: replace form dots with league pills
+    } else if ((teamMode ? filterKeys.length : leagues.length) > 1) {
+        // Leistung: replace form dots with league/team pills
         const scope = document.createElement('div');
         scope.className = 'player-scope';
         const mkPill = (label, active, fullName) => {
@@ -348,10 +478,21 @@ function render() {
         const bAll = mkPill('ALLE', currentLeague === 'alle', 'Alle Ligen und Pokal');
         bAll.addEventListener('click', () => { if (currentLeague !== 'alle') { currentLeague = 'alle'; render(); }});
         scope.appendChild(bAll);
+        if (teamMode) {
+            for (const f of filterKeys) {
+                const isPokal = f.key === POKAL_KEY;
+                const label = isPokal ? 'POKAL' : shortTeamLabel(f.league, f.teamName);
+                const full = isPokal ? 'Alle Pokalspiele' : `${f.teamName ? f.teamName + ' · ' : ''}${f.league}`;
+                const b = mkPill(label, currentLeague === f.key, full);
+                b.addEventListener('click', () => { if (currentLeague !== f.key) { currentLeague = f.key; render(); }});
+                scope.appendChild(b);
+            }
+        } else {
         for (const name of leagues) {
             const b = mkPill(shortLeague(name), currentLeague === name, name);
             b.addEventListener('click', () => { if (currentLeague !== name) { currentLeague = name; render(); }});
             scope.appendChild(b);
+        }
         }
         scroll.appendChild(scope);
     }
@@ -552,7 +693,7 @@ function renderLeistungContent(matches, agg) {
         fill.className = `leistung-fill ${scoreClass(m.playerScore)}`; fill.style.height = '0%'; fill.dataset.h = String(h);
         track.appendChild(fill);
         const val = document.createElement('span'); val.className = `lc-score ${scoreClass(m.playerScore)}`; val.textContent = m.playerScore;
-        const sub = document.createElement('span'); sub.className = 'lc-sub'; sub.textContent = m.league ? shortLeague(m.league) : '';
+        const sub = document.createElement('span'); sub.className = 'lc-sub'; sub.textContent = labelForMatch(m); sub.title = isPokalMatch(m) ? 'Pokal' : (m.league || '');
         col.append(top, logos, res, track, val, sub);
         if (m.meetingId) col.addEventListener('click', () => openMeetingById(m.meetingId, { fromPlayer: true }));
         scroll.appendChild(col);
