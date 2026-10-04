@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { getScore } = require('./scoring');
 const db = require('./db');
 
@@ -82,16 +83,106 @@ function hasCookie() {
 function setCookieJar(cookie, persist = true) {
   cookie = cleanCookie(cookie);
   if (!cookie || cookie === cookieJar) return false;
+  // Persist-guard: never adopt (or store) implausible values. A real session
+  // blob is ~2KB; anything much shorter is a fragment or garbage and would
+  // permanently poison .env + the shared store if persisted.
+  if (cookie.length < 500) {
+    console.log(`[mytt] refusing to adopt implausible cookie (len ${cookie.length}, need >= 500) - keeping current session.`);
+    return false;
+  }
+  if (!cookie.startsWith('base64-')) {
+    console.log('[mytt] note: adopted cookie has unexpected shape (no base64- prefix).');
+  }
+  const prevLen = (cookieJar || '').length;
   cookieJar = cookie;
   process.env.MYTT_COOKIE = cookie;
-  if (persist) persistCookieToEnv(cookie);
+  if (persist) {
+    persistCookieToEnv(cookie);
+    persistSessionToDb(cookie); // shared store (Supabase meta), best-effort
+  }
   lastRefresh = Date.now();
+  console.log(`[mytt] session adopted (len ${prevLen} -> ${cookie.length}).`);
   return true;
+}
+
+// Best-effort mirror of the live session into the shared Supabase store so
+// restarts/redeploys (and the single-instance rule) never fall back to a
+// stale config-file copy. Never throws.
+function persistSessionToDb(cookie) {
+  try {
+    if (!db.available()) return;
+    db.metaSet('mytt-session', JSON.stringify({ v: cookie, at: Date.now() })).catch(() => {});
+  } catch { /* best-effort */ }
+}
+
+function sessionHash(v) {
+  return crypto.createHash('sha256').update(String(v)).digest('hex').slice(0, 16);
+}
+
+// Newest-wins sync between the config-file cookie (operator paste = newest by
+// definition) and the shared store (holds newer rotations). Rules:
+// - env/file value differs from the last env-sourced push -> fresh paste: wins, pushes.
+// - env/file value unchanged since last push (stale dashboard copy) -> shared store wins.
+// - no env/file value -> shared store wins if present.
+// Only hashes are compared/logged, never cookie bytes.
+async function syncSessionWithDb() {
+  try {
+    if (!db.available()) return;
+    const [storedRaw, lastEnvHash] = await Promise.all([
+      db.metaGet('mytt-session').catch(() => null),
+      db.metaGet('mytt-session-env-hash').catch(() => null)
+    ]);
+    let stored = null;
+    try { stored = storedRaw ? JSON.parse(storedRaw) : null; } catch { stored = null; }
+    const envHash = cookieJar ? sessionHash(cookieJar) : '';
+    if (cookieJar && envHash !== lastEnvHash) {
+      await db.metaSet('mytt-session', JSON.stringify({ v: cookieJar, at: Date.now() })).catch(() => {});
+      await db.metaSet('mytt-session-env-hash', envHash).catch(() => {});
+      console.log('[mytt] session: operator cookie adopted as newest, shared.');
+    } else if (stored && stored.v && stored.v !== cookieJar) {
+      cookieJar = stored.v;
+      process.env.MYTT_COOKIE = stored.v;
+      console.log('[mytt] session: restored newer shared session from Supabase.');
+    }
+  } catch (e) {
+    console.log('[mytt] session sync skipped:', e.message);
+  }
 }
 
 function cookieHeader() {
   return `sb-10-auth-token=${cookieJar}`;
 }
+
+// Cookie names seen in a response's Set-Cookie headers (names only, never values).
+function setCookieNames(res) {
+  try {
+    let raw = [];
+    if (typeof res.headers.getSetCookie === 'function') raw = res.headers.getSetCookie();
+    else if (typeof res.headers.raw === 'function') raw = res.headers.raw()['set-cookie'] || [];
+    else { const s = res.headers.get('set-cookie'); if (s) raw = [s]; }
+    return raw.map(e => String(e).split('=')[0]);
+  } catch { return []; }
+}
+
+// Body shape for diagnostics (no user data, no secret values).
+function bodyShape(body, text) {
+  if (body && typeof body === 'object') {
+    if (body.error) {
+      const e = typeof body.error === 'object' ? (body.error.code || 'object') : String(body.error).slice(0, 40);
+      return `json-error:${e}`;
+    }
+    return `json-keys:${Object.keys(body).slice(0, 4).join(',') || '(empty-object)'}`;
+  }
+  if (!text) return 'empty';
+  if (/^\s*</.test(text)) {
+    return /captcha|challenge|turnstile/i.test(text.slice(0, 2000)) ? 'html-challenge-ish' : 'html';
+  }
+  return 'non-json';
+}
+
+// Last refresh diagnostics (metadata only). Powers /admin/mytt-status and the
+// startup/scheduled logs so the next failure is a one-line read.
+let lastRefreshDiag = null;
 
 function updateCookieFromResponse(res) {
   try {
@@ -107,10 +198,21 @@ function updateCookieFromResponse(res) {
     for (const entry of raw) {
       const m = String(entry).match(/sb-10-auth-token=([^;]+)/);
       if (m && m[1] && m[1] !== cookieJar) {
+        // Empty values (cookie-clearing responses like `sb-10-auth-token=; Max-Age=0`)
+        // never match [^;]+, so a logout can never poison the jar here.
         setCookieJar(m[1]);
         console.log('[mytt] auth cookie refreshed via set-cookie.');
-        return true;
+        return 'rotated';
       }
+    }
+    // Re-issued unchanged value still proves liveness (but never adopts empties).
+    const same = raw.some(e => {
+      const mm = String(e).match(/sb-10-auth-token=([^;]*)/);
+      return mm && mm[1] && mm[1] === cookieJar;
+    });
+    if (same) {
+      lastRefresh = Date.now();
+      return 'same';
     }
   } catch (e) {
     console.error('[mytt] set-cookie parse failed:', e.message);
@@ -133,17 +235,36 @@ async function myttFetchJson(url, { auth = false, timeoutMs = 20000 } = {}) {
   try {
     res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    return { ok: false, networkError: true, message: e.message };
+    console.log(`[mytt] fetch network error (${(e && e.name) || 'unknown'}): ${url}`);
+    return { ok: false, networkError: true, shape: 'fetch-failed', message: e.message };
   }
   updateCookieFromResponse(res);
-  if (res.status === 204) return { ok: false, empty: true, status: 204 };
-  if (res.status === 429) return { ok: false, rateLimited: true, status: 429 };
+  if (res.status === 204) {
+    console.log(`[mytt] fetch 204 empty: ${url}`);
+    return { ok: false, empty: true, shape: 'empty-204', status: 204 };
+  }
+  if (res.status === 429) {
+    console.log(`[mytt] fetch 429 rate-limited: ${url}`);
+    return { ok: false, rateLimited: true, shape: 'rate-limited', status: 429 };
+  }
   const text = await res.text().catch(() => '');
-  if (!text) return { ok: false, empty: true, status: res.status };
+  if (!text) {
+    console.log(`[mytt] fetch empty body status=${res.status}: ${url}`);
+    return { ok: false, empty: true, shape: 'empty', status: res.status };
+  }
   let body = null;
-  try { body = JSON.parse(text); } catch { return { ok: false, badJson: true, status: res.status }; }
-  if (!res.ok) return { ok: false, status: res.status, body };
-  if (isAuthErrorBody(body)) return { ok: false, authError: true, status: res.status, body };
+  try { body = JSON.parse(text); } catch {
+    console.log(`[mytt] fetch non-JSON body status=${res.status}: ${url}`);
+    return { ok: false, badJson: true, shape: bodyShape(null, text), status: res.status };
+  }
+  if (!res.ok) {
+    console.log(`[mytt] fetch !ok status=${res.status} shape=${bodyShape(body, text)}: ${url}`);
+    return { ok: false, status: res.status, shape: bodyShape(body, text), body };
+  }
+  if (isAuthErrorBody(body)) {
+    console.log(`[mytt] fetch auth-error: ${url}`);
+    return { ok: false, authError: true, shape: 'auth-error', status: res.status, body };
+  }
   return { ok: true, status: res.status, body };
 }
 
@@ -156,37 +277,85 @@ function looksAuthed(body) {
   return body.data !== undefined || body.ttr !== undefined;
 }
 
-async function refreshProbe(url) {
+async function refreshProbe(url, idx = 0) {
   // Raw probe: a Set-Cookie rotation counts even when the body isn't JSON
   // (e.g. the community HTML page).
+  const diag = { urlIndex: idx, fetchError: null, status: null, setCookieNames: [], bodyShape: null, decision: 'failed' };
   const headers = { ...UA_HEADERS };
   if (cookieJar) headers['Cookie'] = cookieHeader();
   let res;
   try {
     res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
-  } catch {
-    return { rotated: false, authed: false };
+  } catch (e) {
+    diag.fetchError = (e && e.name) || 'fetch-failed';
+    diag.decision = 'failed-fetch';
+    pushProbeDiag(diag);
+    return { rotated: false, authed: false, diag };
   }
-  if (updateCookieFromResponse(res)) return { rotated: true, authed: true };
+  diag.status = res.status;
+  diag.setCookieNames = setCookieNames(res);
+  const rotation = updateCookieFromResponse(res);
+  if (rotation) {
+    diag.decision = rotation === 'same' ? 'reissued-same' : 'rotated';
+    pushProbeDiag(diag);
+    return { rotated: true, authed: true, diag };
+  }
   const text = await res.text().catch(() => '');
   let body = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-  if (isAuthErrorBody(body)) return { rotated: false, authed: false, authError: true };
-  if (res.ok && looksAuthed(body)) return { rotated: false, authed: true };
-  return { rotated: false, authed: false };
+  diag.bodyShape = bodyShape(body, text);
+  if (isAuthErrorBody(body)) {
+    diag.decision = 'auth-error';
+    pushProbeDiag(diag);
+    return { rotated: false, authed: false, authError: true, diag };
+  }
+  if (res.ok && looksAuthed(body)) {
+    diag.decision = 'authed';
+    pushProbeDiag(diag);
+    return { rotated: false, authed: true, diag };
+  }
+  pushProbeDiag(diag);
+  return { rotated: false, authed: false, diag };
 }
 
-async function refreshMyttCookie() {
-  if (!cookieJar) return false;
-  for (const url of REFRESH_URLS) {
-    const r = await refreshProbe(url);
-    if (r.rotated || r.authed) {
-      lastRefresh = Date.now();
-      return true;
+function pushProbeDiag(diag) {
+  try {
+    if (!lastRefreshDiag || !Array.isArray(lastRefreshDiag.probes)) {
+      lastRefreshDiag = { at: new Date().toISOString(), probes: [] };
     }
-    if (r.authError) break; // session dead, probing further URLs won't help
-  }
-  return false;
+    lastRefreshDiag.probes.push(diag);
+  } catch { /* diagnostics must never break auth */ }
+}
+
+function logRefreshSummary(ok) {
+  const parts = (lastRefreshDiag && lastRefreshDiag.probes || []).map(p =>
+    `url${p.urlIndex}:status=${p.status ?? '-'}:shape=${p.bodyShape ?? '-'}:cookies=[${(p.setCookieNames || []).join('|') || '-'}]:${p.decision}${p.fetchError ? `:fetch=${p.fetchError}` : ''}`);
+  console.log(`[mytt] cookie refresh ${ok ? 'ok' : 'FAILED - manual cookie needed'} (${parts.join(' ') || 'no probes'})`);
+}
+
+// Single-flight: overlapping triggers (startup + timer + TTR retry) share one
+// run instead of racing each other into refresh-token conflicts.
+let refreshInFlight = null;
+function refreshMyttCookie() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    if (!cookieJar) return false;
+    lastRefreshDiag = { at: new Date().toISOString(), probes: [] };
+    for (let i = 0; i < REFRESH_URLS.length; i++) {
+      const r = await refreshProbe(REFRESH_URLS[i], i);
+      if (r.rotated || r.authed) {
+        lastRefresh = Date.now();
+        logRefreshSummary(true);
+        return true;
+      }
+      // No premature break: an auth-looking answer on the first URL can be
+      // endpoint-specific; the second URL may still rotate. A truly dead
+      // session fails both probes anyway.
+    }
+    logRefreshSummary(false);
+    return false;
+  })().finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
 }
 
 function ensureAutoRefresh() {
@@ -560,9 +729,13 @@ async function fillMissingCareer(nuid, clubId, season, getTeams) {
 // ---------- routes ----------
 function registerPlayerRoutes(app, getTeams) {
   ensureAutoRefresh();
-  // fire-and-forget refresh on startup so an expired access token heals itself
-  if (cookieJar) refreshMyttCookie().catch(() => {}).then(ok => {
-    if (ok !== undefined) console.log(`[mytt] startup cookie refresh: ${ok ? 'ok' : 'failed'}`);
+  // Shared session first (Supabase newest-wins), then refresh on top, so a
+  // redeployed/restarted server resumes rotations instead of a stale file copy.
+  syncSessionWithDb().catch(() => {}).finally(() => {
+    // fire-and-forget refresh on startup so an expired access token heals itself
+    if (cookieJar) refreshMyttCookie().catch(() => {}).then(ok => {
+      if (ok !== undefined) console.log(`[mytt] startup cookie refresh: ${ok ? 'ok' : 'failed'}`);
+    });
   });
 
   app.get('/player/:nuid/profile', async (req, res) => {
@@ -684,7 +857,12 @@ function registerPlayerRoutes(app, getTeams) {
       probeOk: !!r.ok,
       authError: !!r.authError,
       rateLimited: !!r.rateLimited,
-      lastRefresh: lastRefresh ? new Date(lastRefresh).toISOString() : null
+      status: r.status || null,
+      networkError: !!r.networkError,
+      bodyShape: r.shape || null,
+      cookieLen: (cookieJar || '').length,
+      lastRefresh: lastRefresh ? new Date(lastRefresh).toISOString() : null,
+      lastRefreshDiag
     });
   });
 
