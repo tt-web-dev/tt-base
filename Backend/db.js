@@ -315,8 +315,12 @@ async function attachTeamScores(career) {
   const groupIds = [...new Set(Object.values(meetById).map(r => r.group_id).filter(Boolean))];
   const leagueByGroup = {};
   for (let i = 0; i < groupIds.length; i += 50) {
+    // No .limit(): one group can have several rows (schedule filters
+    // 'gesamt'/'vr'/'rr'). Limiting by group count truncated rows and left
+    // some matches with league '' (visible as cryptic 'Liga' pills).
+    // A 50-group chunk yields at most ~150 rows, safely below the default 1000.
     const { data } = await sb.from('leagues').select('group_id, league_name')
-      .in('group_id', groupIds.slice(i, i + 50)).limit(groupIds.slice(i, i + 50).length);
+      .in('group_id', groupIds.slice(i, i + 50));
     for (const row of data || []) {
       if (!leagueByGroup[row.group_id]) leagueByGroup[row.group_id] = row.league_name;
     }
