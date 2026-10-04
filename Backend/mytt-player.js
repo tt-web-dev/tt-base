@@ -164,6 +164,32 @@ function setCookieNames(res) {
   } catch { return []; }
 }
 
+// Classify a redirect destination into myTT's known gates (read from their
+// route manifest: /verify = bot/captcha check, /blocked = block,
+// /login = dead-session bounce). Substring match on purpose (relative or
+// absolute Location values both work).
+function classifyRedirect(location) {
+  const loc = String(location || '');
+  if (!loc) return 'redirect-no-location';
+  if (loc.includes('/blocked')) return 'redirect-blocked';
+  if (loc.includes('/verify')) return 'redirect-verify(challenge)';
+  if (loc.includes('/login')) return 'redirect-login(dead-session)';
+  let path = loc;
+  try { path = new URL(loc, 'https://www.mytischtennis.de').pathname; } catch { /* keep raw */ }
+  return `redirect:${path.slice(0, 60)}`;
+}
+
+// Final URL info for followed redirects (fetch follows by default here, so a
+// dead session or challenge arrives as HTML at a different path).
+function followedRedirectInfo(res) {
+  try {
+    if (res && res.redirected && res.url) {
+      return { redirected: true, finalPath: new URL(res.url).pathname, shape: classifyRedirect(res.url) };
+    }
+  } catch { /* ignore */ }
+  return { redirected: !!(res && res.redirected), finalPath: null, shape: null };
+}
+
 // Body shape for diagnostics (no user data, no secret values).
 function bodyShape(body, text) {
   if (body && typeof body === 'object') {
@@ -239,27 +265,31 @@ async function myttFetchJson(url, { auth = false, timeoutMs = 20000 } = {}) {
     return { ok: false, networkError: true, shape: 'fetch-failed', message: e.message };
   }
   updateCookieFromResponse(res);
+  const redir = followedRedirectInfo(res);
+  const redirSuffix = redir.redirected && redir.finalPath ? ` -> ${redir.finalPath}` : '';
   if (res.status === 204) {
     console.log(`[mytt] fetch 204 empty: ${url}`);
     return { ok: false, empty: true, shape: 'empty-204', status: 204 };
   }
   if (res.status === 429) {
     console.log(`[mytt] fetch 429 rate-limited: ${url}`);
-    return { ok: false, rateLimited: true, shape: 'rate-limited', status: 429 };
+    return { ok: false, rateLimited: true, shape: 'rate-limited', status: 429, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   const text = await res.text().catch(() => '');
   if (!text) {
-    console.log(`[mytt] fetch empty body status=${res.status}: ${url}`);
-    return { ok: false, empty: true, shape: 'empty', status: res.status };
+    console.log(`[mytt] fetch empty body status=${res.status}: ${url}${redirSuffix}`);
+    return { ok: false, empty: true, shape: redir.shape || 'empty', status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   let body = null;
   try { body = JSON.parse(text); } catch {
-    console.log(`[mytt] fetch non-JSON body status=${res.status}: ${url}`);
-    return { ok: false, badJson: true, shape: bodyShape(null, text), status: res.status };
+    const shape = redir.shape || bodyShape(null, text);
+    console.log(`[mytt] fetch non-JSON body status=${res.status} shape=${shape}: ${url}${redirSuffix}`);
+    return { ok: false, badJson: true, shape, status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   if (!res.ok) {
-    console.log(`[mytt] fetch !ok status=${res.status} shape=${bodyShape(body, text)}: ${url}`);
-    return { ok: false, status: res.status, shape: bodyShape(body, text), body };
+    const shape = (body == null && redir.shape) || bodyShape(body, text);
+    console.log(`[mytt] fetch !ok status=${res.status} shape=${shape}: ${url}${redirSuffix}`);
+    return { ok: false, status: res.status, shape, body, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   if (isAuthErrorBody(body)) {
     console.log(`[mytt] fetch auth-error: ${url}`);
@@ -280,12 +310,15 @@ function looksAuthed(body) {
 async function refreshProbe(url, idx = 0) {
   // Raw probe: a Set-Cookie rotation counts even when the body isn't JSON
   // (e.g. the community HTML page).
-  const diag = { urlIndex: idx, fetchError: null, status: null, setCookieNames: [], bodyShape: null, decision: 'failed' };
+  // Redirects are NOT followed here (redirect:'manual'): the Location header
+  // tells us exactly which gate fired (/verify = challenge, /blocked = block,
+  // /login = dead session) instead of all three arriving as anonymous HTML.
+  const diag = { urlIndex: idx, fetchError: null, status: null, setCookieNames: [], redirectTo: null, bodyShape: null, decision: 'failed' };
   const headers = { ...UA_HEADERS };
   if (cookieJar) headers['Cookie'] = cookieHeader();
   let res;
   try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+    res = await fetch(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(20000) });
   } catch (e) {
     diag.fetchError = (e && e.name) || 'fetch-failed';
     diag.decision = 'failed-fetch';
@@ -299,6 +332,12 @@ async function refreshProbe(url, idx = 0) {
     diag.decision = rotation === 'same' ? 'reissued-same' : 'rotated';
     pushProbeDiag(diag);
     return { rotated: true, authed: true, diag };
+  }
+  if (res.status >= 300 && res.status < 400) {
+    diag.redirectTo = classifyRedirect(res.headers.get('location'));
+    diag.decision = 'redirected';
+    pushProbeDiag(diag);
+    return { rotated: false, authed: false, diag };
   }
   const text = await res.text().catch(() => '');
   let body = null;
@@ -329,7 +368,7 @@ function pushProbeDiag(diag) {
 
 function logRefreshSummary(ok) {
   const parts = (lastRefreshDiag && lastRefreshDiag.probes || []).map(p =>
-    `url${p.urlIndex}:status=${p.status ?? '-'}:shape=${p.bodyShape ?? '-'}:cookies=[${(p.setCookieNames || []).join('|') || '-'}]:${p.decision}${p.fetchError ? `:fetch=${p.fetchError}` : ''}`);
+    `url${p.urlIndex}:status=${p.status ?? '-'}:shape=${p.bodyShape ?? '-'}${p.redirectTo ? `:to=${p.redirectTo}` : ''}:cookies=[${(p.setCookieNames || []).join('|') || '-'}]:${p.decision}${p.fetchError ? `:fetch=${p.fetchError}` : ''}`);
   console.log(`[mytt] cookie refresh ${ok ? 'ok' : 'FAILED - manual cookie needed'} (${parts.join(' ') || 'no probes'})`);
 }
 
@@ -860,6 +899,8 @@ function registerPlayerRoutes(app, getTeams) {
       status: r.status || null,
       networkError: !!r.networkError,
       bodyShape: r.shape || null,
+      redirected: !!r.redirected,
+      finalPath: r.finalPath || null,
       cookieLen: (cookieJar || '').length,
       lastRefresh: lastRefresh ? new Date(lastRefresh).toISOString() : null,
       lastRefreshDiag
