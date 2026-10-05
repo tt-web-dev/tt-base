@@ -213,10 +213,18 @@ function getMatchInfo(match, homeClubId, awayClubId) {
   
 }
 
-function getMeetingInfo(data) {
+async function getMeetingInfo(data) {
   //call getMatchInfo
   //return formatted array with everything
-  const matchInfo = getMatchInfo(data.match, data.team_home_club_nr, data.team_guest_club_nr)
+  //Rating fill first (stored official TTR <=60d -> fed_rank -> Q-TTR) so the
+  //TTR bonuses compute even where myTT ships fed_rank:null. Falls back to
+  //raw fed_rank on any error.
+  let match = data.match;
+  try {
+    const filled = await resolveMatchRatings(data.match).catch(() => null);
+    if (filled && filled.match) match = filled.match;
+  } catch { /* fall back to raw fed_rank */ }
+  const matchInfo = getMatchInfo(match, data.team_home_club_nr, data.team_guest_club_nr)
   
   const meetingInfo = {
     meetingId: data.meeting_id,
@@ -371,7 +379,7 @@ app.get('/health', async (req, res) => {
 });
 
 //myTT player view (TTR profile + season aggregation for EVERY league player)
-const { registerPlayerRoutes } = require('./mytt-player');
+const { registerPlayerRoutes, resolveMatchRatings, distinctPersonIds, fillQttrsBackground } = require('./mytt-player');
 registerPlayerRoutes(app, () => teams);
 
 const PORT = process.env.PORT || 3000
@@ -664,7 +672,7 @@ app.get('/meeting/:id', async (req, res) => {
     if (db.available()) {
       const stored = await db.getMeeting(id).catch(() => null);
       if (stored && stored.raw && (stored.frozen || stored.state === 'done')) {
-        return res.send(getMeetingInfo(stored.raw));
+        return res.send(await getMeetingInfo(stored.raw));
       }
     }
   } catch { /* fall through to live */ }
@@ -677,7 +685,7 @@ app.get('/meeting/:id', async (req, res) => {
       throw new Error(`Fetch error: ${response.status}`);
     }
     const body = await response.json();
-    const info = getMeetingInfo(body.data);
+    const info = await getMeetingInfo(body.data);
     // First-open store (raw only). Never fail the response on store errors.
     try {
       if (db.available() && body.data) {
@@ -701,6 +709,13 @@ app.get('/meeting/:id', async (req, res) => {
       }
     } catch { /* ignore */ }
     res.send(info);
+    // Lazy Q-TTR fill for all participants (background): whatever is missing
+    // or past-cutoff gets stored for future scoring. Never blocks/errors.
+    try {
+      if (body.data && Array.isArray(body.data.match)) {
+        fillQttrsBackground(distinctPersonIds(body.data.match)).catch(() => {});
+      }
+    } catch { /* ignore */ }
 
   } catch (error) {
     try {
@@ -708,7 +723,7 @@ app.get('/meeting/:id', async (req, res) => {
         const stored = await db.getMeeting(id).catch(() => null);
         if (stored && stored.raw) {
           console.log(`Serving stale meeting ${id} from Supabase.`);
-          return res.send(getMeetingInfo(stored.raw));
+          return res.send(await getMeetingInfo(stored.raw));
         }
       }
     } catch { /* ignore */ }

@@ -618,6 +618,10 @@ function ensureMeetingHeader(showBack) {
 function renderUebersichtContent(matches, agg) {
     const frag = document.createDocumentFragment();
     const { profile } = currentData;
+    // Rating display chain: official profile.ttr first; else public Q-TTR
+    // (bare 'Q-TTR' label, no history sub-blocks); else '—'.
+    const hasTtr = profile && profile.ttr != null;
+    const qttr = !hasTtr && currentData.qttr != null ? currentData.qttr : null;
 
     // top row: Kickbase-like two cards — left: Punkte+Ø stacked, right: TTR+TTR-deltas stacked
     const top = document.createElement('div');
@@ -627,7 +631,7 @@ function renderUebersichtContent(matches, agg) {
     const cRight = document.createElement('div'); cRight.className = 'player-card';
     const lastDelta = profile?.lastGame?.delta;
     let ttrTop = '';
-    if (typeof lastDelta === 'number') {
+    if (hasTtr && typeof lastDelta === 'number') {
         const neg = lastDelta < 0;
         const cls = neg ? 'neg' : (lastDelta > 0 ? 'pos' : '');
         const icon = neg ? 'fa-arrow-trend-down' : (lastDelta > 0 ? 'fa-arrow-trend-up' : 'fa-minus');
@@ -637,15 +641,17 @@ function renderUebersichtContent(matches, agg) {
     }
     const d = profile?.delta3m;
     let deltaBlock = '';
-    if (d && typeof d.delta === 'number') {
+    if (hasTtr && d && typeof d.delta === 'number') {
         const neg = d.delta < 0;
         const cls = neg ? 'neg' : (d.delta > 0 ? 'pos' : '');
         const sign = d.delta > 0 ? `+${d.delta}` : `${d.delta}`;
         deltaBlock = `<div class="v ${cls}" style="font-size:0.95em;margin-top:0.45em">${sign}</div><div class="l">letzte 3 Monate</div>`;
-    } else {
+    } else if (hasTtr) {
         deltaBlock = `<div class="v">—</div><div class="l">letzte 3 Monate</div>`;
     }
-    cRight.innerHTML = `${ttrTop}<div class="v">${profile?.ttr ?? '—'}</div><div class="l">TTR</div>${deltaBlock}`;
+    const ratingValue = hasTtr ? profile.ttr : (qttr ?? '—');
+    const ratingLabel = hasTtr ? 'TTR' : 'Q-TTR';
+    cRight.innerHTML = `${ttrTop}<div class="v">${ratingValue}</div><div class="l">${ratingLabel}</div>${deltaBlock}`;
     top.append(cLeft, cRight);
     frag.appendChild(top);
 
@@ -655,7 +661,8 @@ function renderUebersichtContent(matches, agg) {
     triple.append(mkMini(matches.length, 'Einsätze'), mkMini(agg.siege, 'Siege'), mkMini(agg.niederlagen, 'Niederlagen'));
     frag.appendChild(triple);
 
-    if (!profile && currentData.profileError === 'needLogin') {
+    // needLogin note only when neither official TTR nor Q-TTR is available.
+    if (!profile && !qttr && currentData.profileError === 'needLogin') {
         frag.appendChild(statusEl('TTR-Daten brauchen einen frischen myTT-Login (Server). Punkte stimmen trotzdem.'));
     }
 

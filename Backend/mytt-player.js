@@ -7,7 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { getScore } = require('./scoring');
+const { getScore, pickRating } = require('./scoring');
 const db = require('./db');
 
 const BACKEND_DIR = __dirname;
@@ -688,6 +688,123 @@ async function getPlayerProfile(nuid) {
   return { ...profile, fromCache: false };
 }
 
+// ---------- Q-TTR fallback (public, no login) ----------
+// The player popup answers Q-TTR (but TTR:null) without a session. Q-TTR is
+// published quarterly (Feb/May/Aug/Dec 11th + 1 grace day, see qttrCutoffMs);
+// a stored value is kept until the next cutoff, then refilled lazily.
+const QTTR_FILE_TTL_MS = 90 * 24 * 3600 * 1000;
+
+async function fetchQttr(nuid) {
+  if (db.available()) {
+    try {
+      const stored = await db.getQttr(nuid);
+      if (stored && db.qttrIsFresh(stored.updatedAt)) return { qttr: stored.qttr, fromCache: true };
+    } catch { /* fall through to live */ }
+  }
+  const key = `qttr-${nuid}`;
+  const cached = readCache(key, QTTR_FILE_TTL_MS);
+  if (cached && cached.qttr != null) return { qttr: cached.qttr, fromCache: true };
+  const r = await myttFetchJson(`https://www.mytischtennis.de/api/player-popup/${encodeURIComponent(nuid)}`);
+  const qttr = r.ok && r.body && r.body.player ? r.body.player.qttr : null;
+  if (qttr == null) {
+    // Live failed: serve stale stored value if any (better than nothing).
+    try {
+      const stored = db.available() ? await db.getQttr(nuid) : null;
+      if (stored) return { qttr: stored.qttr, fromCache: true, stale: true };
+    } catch { /* ignore */ }
+    return { qttr: null, rateLimited: !!r.rateLimited };
+  }
+  writeCache(key, { qttr });
+  if (db.available()) {
+    try { await db.setQttr(nuid, qttr); } catch { /* ephemeral, ignore */ }
+  }
+  return { qttr, fromCache: false };
+}
+
+// person_ids appearing anywhere in a match's four player slots.
+function distinctPersonIds(match) {
+  const set = new Set();
+  for (const g of match || []) {
+    for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
+      if (g[s] && g[s].person_id) set.add(g[s].person_id);
+    }
+  }
+  return [...set];
+}
+
+// Fill missing fed_rank slots from stored ratings (official TTR <=60d, then
+// match-time fed_rank, then Q-TTR) so getScore sees values. Returns a copied
+// match plus per-person source map for ttr_source bookkeeping. scoring.js
+// itself stays pure I/O-free.
+async function resolveMatchRatings(match, nowMs = Date.now()) {
+  const sources = {};
+  const filled = (match || []).map(g => {
+    const copy = { ...g };
+    for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
+      if (copy[s]) copy[s] = { ...copy[s] };
+    }
+    return copy;
+  });
+  const ids = distinctPersonIds(match);
+  let ttrs = {}, qttrs = {};
+  if (db.available() && ids.length) {
+    try { [ttrs, qttrs] = await Promise.all([db.getTtrs(ids), db.getQttrs(ids)]); }
+    catch { ttrs = {}; qttrs = {}; }
+  }
+  const fedOf = (pid) => {
+    for (const g of match || []) {
+      for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
+        if (g[s] && g[s].person_id === pid) return g[s].fed_rank;
+      }
+    }
+    return null;
+  };
+  const picked = {};
+  for (const pid of ids) {
+    const t = ttrs[pid], q = qttrs[pid];
+    picked[pid] = pickRating({
+      official: t ? t.ttr : null, officialAt: t ? t.updatedAt : 0,
+      fedRank: fedOf(pid), qttr: q ? q.qttr : null, nowMs
+    });
+    sources[pid] = picked[pid].source;
+  }
+  for (const g of filled) {
+    for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
+      const p = g[s];
+      if (p && p.person_id && picked[p.person_id] && picked[p.person_id].value !== null) {
+        p.fed_rank = picked[p.person_id].value;
+      }
+    }
+  }
+  return { match: filled, sources };
+}
+
+// Background Q-TTR fill for a set of players (meeting modal / player view):
+// fetch whatever is missing or past-cutoff, store it. Never throws, never
+// blocks a response (scoring consumes only stored values; the correction
+// window heals recent matches retroactively).
+async function fillQttrsBackground(personIds) {
+  try {
+    const ids = [...new Set((personIds || []).map(String))].filter(Boolean);
+    if (!ids.length) return { filled: 0 };
+    let qttrs = {};
+    try { qttrs = db.available() ? await db.getQttrs(ids) : {}; } catch { qttrs = {}; }
+    const missing = ids.filter(pid => {
+      const q = qttrs[pid];
+      return !q || !db.qttrIsFresh(q.updatedAt);
+    });
+    let filled = 0;
+    for (const pid of missing) {
+      try {
+        const r = await fetchQttr(pid);
+        if (r && r.qttr != null) filled++;
+      } catch { /* ignore single-player failures */ }
+    }
+    if (missing.length) console.log(`[mytt] qttr background fill: ${filled}/${missing.length} stored.`);
+    return { filled };
+  } catch { return { filled: 0 }; }
+}
+
 function validNuid(nuid) {
   return typeof nuid === 'string' && /^[A-Za-z0-9-]{2,20}$/.test(nuid);
 }
@@ -732,15 +849,12 @@ async function fillMissingCareer(nuid, clubId, season, getTeams) {
           team_away_score: raw.matches_guest ?? g.awayScore ?? null,
           season, competition: 'league', raw, frozen: false
         });
-        const persons = new Set();
-        for (const game of raw.match) {
-          for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
-            if (game[s] && game[s].person_id) persons.add(game[s].person_id);
-          }
-        }
+        const persons = distinctPersonIds(raw.match);
+        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+        const filledRaw = { ...raw, match: filledMatch };
         const rows = [];
         for (const pid of persons) {
-          const pm = computePlayerMeeting(raw, pid);
+          const pm = computePlayerMeeting(filledRaw, pid);
           if (!pm) continue;
           rows.push({
             person_id: pid, meeting_id: String(g.meetingId), side: pm.side,
@@ -750,7 +864,8 @@ async function fillMissingCareer(nuid, clubId, season, getTeams) {
             first_name: pm.firstName, last_name: pm.lastName,
             club_id: pm.clubId ? String(pm.clubId) : null, team_name: pm.teamName,
             opponent_name: pm.opponentName, opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
-            date: pm.date, season, competition: 'league'
+            date: pm.date, season, competition: 'league',
+            ttr_source: sources[pid] || 'none'
           });
         }
         await db.upsertAppearances(rows);
@@ -823,9 +938,10 @@ function registerPlayerRoutes(app, getTeams) {
     const includePokal = req.query.includePokal !== '0';
     const clubId = String(req.query.clubId || '');
     try {
-      const [profile, stored] = await Promise.all([
+      const [profile, stored, qttr] = await Promise.all([
         getPlayerProfile(nuid).catch(() => ({ ok: false, reason: 'profile-error' })),
-        db.attachTeamScores(await db.getCareer(nuid, season, includePokal)).catch(() => null)
+        db.attachTeamScores(await db.getCareer(nuid, season, includePokal)).catch(() => null),
+        fetchQttr(nuid).catch(() => ({ qttr: null }))
       ]);
       let career = stored;
       if (!career && clubId) {
@@ -844,6 +960,9 @@ function registerPlayerRoutes(app, getTeams) {
         profileError: profile && !profile.ok
           ? (profile.needLogin ? 'needLogin' : (profile.rateLimited ? 'rateLimited' : (profile.reason || 'unavailable')))
           : null,
+        // Public Q-TTR fallback for display (bare 'Q-TTR' label in frontend
+        // when no official profile.ttr exists). Null when unknown.
+        qttr: qttr && qttr.qttr != null ? qttr.qttr : null,
         season: {
           ...career,
           leagueName: '',
@@ -867,9 +986,10 @@ function registerPlayerRoutes(app, getTeams) {
     const team = getTeams().find(t => String(t.groupId) === groupId);
     if (!team) return res.status(404).send({ error: `No league with groupId ${groupId} in teams[].` });
     try {
-      const [profile, season] = await Promise.all([
+      const [profile, season, qttr] = await Promise.all([
         getPlayerProfile(nuid).catch(() => ({ ok: false, reason: 'profile-error' })),
-        getPlayerSeason(nuid, team)
+        getPlayerSeason(nuid, team),
+        fetchQttr(nuid).catch(() => ({ qttr: null }))
       ]);
       if (season.error === 'rate-limited') return res.status(429).send({ error: RATE_LIMIT_MSG });
       if (season.error) return res.status(502).send({ error: 'Failed to load league data.' });
@@ -880,6 +1000,7 @@ function registerPlayerRoutes(app, getTeams) {
         ttrAuth: !!(profile && profile.ok),
         profile: profile && profile.ok ? profile : null,
         profileError: profile && !profile.ok ? (profile.needLogin ? 'needLogin' : (profile.reason || 'unavailable')) : null,
+        qttr: qttr && qttr.qttr != null ? qttr.qttr : null,
         season
       });
     } catch (e) {
@@ -932,6 +1053,10 @@ module.exports = {
   getPlayerSeason,
   fetchMeetingRaw,
   fetchLeagueGames,
+  fetchQttr,
+  distinctPersonIds,
+  resolveMatchRatings,
+  fillQttrsBackground,
   computePlayerMeeting,
   myttFetchJson,
   refreshMyttCookie,

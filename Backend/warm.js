@@ -15,6 +15,8 @@ const {
   myttFetchJson,
   fetchLeagueGames,
   fetchMeetingRaw,
+  fetchQttr,
+  resolveMatchRatings,
   computePlayerMeeting
 } = require('./mytt-player');
 
@@ -189,9 +191,13 @@ async function main() {
         });
         if (stored && stored.raw) progress.meetingsCorrected++;
         else progress.meetingsNew++;
+        // Rating fill (official<=60d -> fed_rank -> Q-TTR) so TTR bonuses
+        // compute even where myTT ships fed_rank:null. Sources recorded per row.
+        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+        const filledRaw = { ...raw, match: filledMatch };
         const rows2 = [];
-        for (const personId of distinctPersons(raw.match)) {
-          const pm = computePlayerMeeting(raw, personId);
+        for (const personId of distinctPersons(filledMatch)) {
+          const pm = computePlayerMeeting(filledRaw, personId);
           if (!pm) continue;
           progress.players.add(personId);
           rows2.push({
@@ -213,7 +219,8 @@ async function main() {
             opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
             date: pm.date,
             season: target,
-            competition
+            competition,
+            ttr_source: sources[personId] || 'none'
           });
         }
         await db.upsertAppearances(rows2);
@@ -223,6 +230,27 @@ async function main() {
         teamsDone: progress.teamsDone, teamsTotal: progress.teamsTotal,
         meetingsFetched: progress.meetingsDone, at: new Date().toISOString()
       }));
+    }
+
+    // Quarterly Q-TTR pass (public popup, generous budget): refresh stored
+    // values older than the current cutoff, capped per night, lightly paced
+    // (~3s apart, not the 40/h meeting pace). Lazy fills on modal open cover
+    // the rest; scoring consumes only stored values.
+    try {
+      const stale = await db.getStaleQttrPersonIds(100).catch(() => []);
+      let qttrNew = 0;
+      for (const pid of stale) {
+        await sleep(3000);
+        const r = await fetchQttr(pid);
+        if (r && r.qttr != null && !r.fromCache) { reqCount++; qttrNew++; }
+        else if (r && r.rateLimited) {
+          console.log('[warm] qttr pass rate-limited - stopping pass, meetings already done.');
+          break;
+        }
+      }
+      if (stale.length) console.log(`[warm] qttr pass: ${qttrNew}/${stale.length} refreshed.`);
+    } catch (e) {
+      console.log('[warm] qttr pass skipped:', e.message);
     }
 
     console.log(`[warm] done. ~${reqCount} myTT requests used. computed in memory: ${progress.players.size} players (new: ${progress.meetingsNew}, corrected: ${progress.meetingsCorrected}).`);

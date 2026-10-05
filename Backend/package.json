@@ -2,6 +2,7 @@
   "scripts": {
     "start": "node server.js",
     "warm": "node warm.js",
+    "warm-qttr": "node qttr-refresh.js",
     "rescore": "node rescore.js"
   },
   "dependencies": {

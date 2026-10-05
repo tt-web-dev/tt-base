@@ -252,4 +252,26 @@ function getScore(match, player, side) {
   return Math.round(score)
 }
 
-module.exports = { Punkte, getDScore, getEScore, getScore };
+// Rating resolution for the TTR-specific bonuses (team decision):
+// stored official TTR (if <= 60 days old) -> match-time fed_rank ->
+// stored Q-TTR -> none. fed_rank is match-contemporaneous so it always wins
+// over an older official value only when the official value is outside its
+// 60-day grace; a fresh Q-TTR beats an ancient official value implicitly
+// because the official branch already expired by then.
+const OFFICIAL_TTR_GRACE_MS = 60 * 24 * 3600 * 1000;
+
+function pickRating({ official, officialAt, fedRank, qttr, nowMs = Date.now() }) {
+  const fed = (fedRank === null || fedRank === undefined || Number.isNaN(Number(fedRank)))
+    ? null
+    : Number(fedRank);
+  const q = (qttr === null || qttr === undefined || Number.isNaN(Number(qttr))) ? null : Number(qttr);
+  const o = (official === null || official === undefined || Number.isNaN(Number(official))) ? null : Number(official);
+  if (o !== null && Number(officialAt || 0) > nowMs - OFFICIAL_TTR_GRACE_MS) {
+    return { value: o, source: 'ttr' };
+  }
+  if (fed !== null) return { value: fed, source: 'fed' };
+  if (q !== null) return { value: q, source: 'qttr' };
+  return { value: null, source: 'none' };
+}
+
+module.exports = { Punkte, getDScore, getEScore, getScore, pickRating, OFFICIAL_TTR_GRACE_MS };

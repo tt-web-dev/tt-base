@@ -1,11 +1,13 @@
 // Standalone offline rescore: recomputes appearances.player_score from stored
 // meetings.raw_json in Supabase using the current Backend/scoring.js (Punkte).
-// Usage: npm run rescore         -> zero network calls, overwrites scores in-place
-//        node rescore.js --dry-run -> preview only
+// Rating fill (official<=60d -> fed_rank -> Q-TTR) comes from the store only:
+// zero myTT calls. Records ttr_source per appearance.
+// Usage: npm run rescore         -> overwrites scores in-place
+//        node rescore.js --dry-run -> preview only (ALWAYS review first)
 // Only the scoring changed — raw myTT JSONs stay untouched.
 
 const db = require('./db');
-const { computePlayerMeeting } = require('./mytt-player');
+const { computePlayerMeeting, resolveMatchRatings } = require('./mytt-player');
 
 const dryRun = process.argv.includes('--dry-run');
 
@@ -58,11 +60,13 @@ async function main() {
     for (const m of rows) {
       let raw = m.raw;
       if (!raw || !Array.isArray(raw.match)) { meetingsSkipped++; continue; }
-      const persons = distinctPersons(raw.match);
+      const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+      const filledRaw = { ...raw, match: filledMatch };
+      const persons = distinctPersons(filledMatch);
       if (!persons.length) { meetingsSkipped++; continue; }
       const batch = [];
       for (const pid of persons) {
-        const pm = computePlayerMeeting(raw, pid);
+        const pm = computePlayerMeeting(filledRaw, pid);
         if (!pm) continue;
         const key = `${pid}|${m.meeting_id}`;
         const prev = curScore.get(key);
@@ -78,7 +82,8 @@ async function main() {
           club_id: pm.clubId ? String(pm.clubId) : null,
           team_name: pm.teamName, opponent_name: pm.opponentName,
           opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
-          date: pm.date, season, competition
+          date: pm.date, season, competition,
+          ttr_source: sources[pid] || 'none'
         });
         appearancesWritten++;
         if (prev !== pm.playerScore) appearancesChanged++;

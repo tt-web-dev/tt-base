@@ -93,8 +93,21 @@ CREATE TABLE IF NOT EXISTS ttr (
   updated_at BIGINT NOT NULL DEFAULT 0
 );
 
--- Generic key/value store for warm checkpoints and run logs.
--- Named k/v (not key/value) to avoid Postgres keyword friction.
+-- Public quarterly TTR fallback (no login needed). Q-TTR is published on
+-- Feb/May/Aug/Dec 11th; values are valid until the next cutoff + 1 grace day
+-- (see qttrCutoffMs in db.js). Populated lazily on view + by quarterly pass.
+CREATE TABLE IF NOT EXISTS qttr (
+  person_id TEXT PRIMARY KEY,
+  qttr INTEGER,
+  updated_at BIGINT NOT NULL DEFAULT 0
+);
+
+-- Which rating fed the TTR-specific scoring bonuses of each appearance
+-- (ttr = stored official, fed = match-time fed_rank, qttr = quarterly fallback).
+-- ALTER for databases created before this column existed (idempotent).
+ALTER TABLE appearances ADD COLUMN IF NOT EXISTS ttr_source TEXT NOT NULL DEFAULT 'none';
+
+-- Generic key/value store (k/v naming avoids Postgres keyword friction).
 CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,
   v TEXT

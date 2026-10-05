@@ -87,6 +87,26 @@ function ttrIsFresh(updatedAtMs, nowMs = Date.now()) {
   return Number(updatedAtMs || 0) > ttrCutoffMs(nowMs);
 }
 
+// Q-TTR publication dates (day after the official 11th = 1 grace day for
+// late publishing on myTT side), fixed UTC. A stored Q-TTR is valid until
+// the next cutoff passes.
+const QTTR_CUTOFFS = [[2, 12], [5, 12], [8, 12], [12, 12]];
+
+function qttrCutoffMs(nowMs = Date.now()) {
+  const d = new Date(nowMs);
+  const y = d.getUTCFullYear();
+  const cuts = QTTR_CUTOFFS.map(([mo, day]) => Date.UTC(y, mo - 1, day));
+  let last = Date.UTC(y - 1, 11, 12);
+  for (const c of cuts) {
+    if (nowMs >= c) last = c;
+  }
+  return last;
+}
+
+function qttrIsFresh(updatedAtMs, nowMs = Date.now()) {
+  return Number(updatedAtMs || 0) > qttrCutoffMs(nowMs);
+}
+
 // Done meetings older than this are frozen and never re-fetched.
 const CORRECTION_WINDOW_MS = 2 * 24 * 3600 * 1000;
 
@@ -225,6 +245,7 @@ async function getMeeting(meetingId) {
 }
 
 function appearanceRow(a) {
+  const source = ['ttr', 'fed', 'qttr'].includes(a.ttr_source) ? a.ttr_source : 'none';
   return {
     person_id: String(a.person_id), meeting_id: String(a.meeting_id), side: a.side || null,
     player_score: a.player_score ?? null,
@@ -235,7 +256,8 @@ function appearanceRow(a) {
     club_id: a.club_id != null ? String(a.club_id) : null,
     team_name: a.team_name || '', opponent_name: a.opponent_name || '',
     opponent_club: a.opponent_club != null ? String(a.opponent_club) : null,
-    date: a.date || null, season: a.season || '', competition: a.competition || 'league'
+    date: a.date || null, season: a.season || '', competition: a.competition || 'league',
+    ttr_source: source
   };
 }
 
@@ -358,6 +380,74 @@ async function setTtr(personId, profile) {
   ));
 }
 
+// Quarterly TTR fallback (public, no login). Returns { qttr, updatedAt } or null.
+async function getQttr(personId) {
+  const sb = getClient();
+  if (!sb) return null;
+  const { data, error } = await sb.from('qttr').select('qttr, updated_at').eq('person_id', String(personId)).maybeSingle();
+  if (error || !data || data.qttr == null) return null;
+  return { qttr: data.qttr, updatedAt: data.updated_at };
+}
+
+async function setQttr(personId, qttr) {
+  const sb = getClient();
+  if (!sb || qttr == null) return;
+  await write('upsert', 'qttr', sb.from('qttr').upsert(
+    { person_id: String(personId), qttr: Math.round(qttr), updated_at: now() },
+    { onConflict: 'person_id' }
+  ));
+}
+
+// Batch maps person_id -> { qttr, updatedAt } (one round trip per 100 ids).
+async function getQttrs(personIds) {
+  const sb = getClient();
+  const out = {};
+  if (!sb) return out;
+  const ids = [...new Set((personIds || []).map(String))].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await sb.from('qttr').select('person_id, qttr, updated_at').in('person_id', ids.slice(i, i + 100));
+    for (const row of data || []) {
+      if (row.qttr != null) out[row.person_id] = { qttr: row.qttr, updatedAt: row.updated_at };
+    }
+  }
+  return out;
+}
+
+// Batch maps person_id -> { profile, updatedAt } for the scoring chain's
+// official-TTR-first branch (one round trip per 100 ids).
+async function getTtrs(personIds) {
+  const sb = getClient();
+  const out = {};
+  if (!sb) return out;
+  const ids = [...new Set((personIds || []).map(String))].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await sb.from('ttr').select('person_id, profile_json, updated_at').in('person_id', ids.slice(i, i + 100));
+    for (const row of data || []) {
+      const profile = asObject(row.profile_json);
+      if (profile && profile.ttr != null) out[row.person_id] = { ttr: profile.ttr, updatedAt: row.updated_at };
+    }
+  }
+  return out;
+}
+
+// person_ids (from appearances) whose Q-TTR is missing or older than the
+// current quarterly cutoff. Used by the nightly/quarterly refresh pass.
+async function getStaleQttrPersonIds(limit = 100, nowMs = Date.now()) {
+  const sb = getClient();
+  if (!sb) return [];
+  const cutoff = qttrCutoffMs(nowMs);
+  const { data: app } = await sb.from('appearances').select('person_id').limit(20000);
+  const persons = [...new Set((app || []).map(r => r.person_id).filter(Boolean))];
+  const fresh = new Set();
+  for (let i = 0; i < persons.length; i += 200) {
+    const { data } = await sb.from('qttr').select('person_id, updated_at').in('person_id', persons.slice(i, i + 200));
+    for (const row of data || []) {
+      if (Number(row.updated_at || 0) > cutoff) fresh.add(row.person_id);
+    }
+  }
+  return persons.filter(p => !fresh.has(p)).slice(0, limit);
+}
+
 // Set of meeting ids that already have raw JSON stored (one round trip).
 async function getExistingRawMeetingIds(ids) {
   const sb = getClient();
@@ -413,12 +503,13 @@ async function stats() {
     const { data } = await sb0.from('leagues').select('group_id').limit(5000);
     leagues = new Set((data || []).map(r => r.group_id)).size;
   } catch { /* ignore */ }
-  const [clubs, teams, meetings, meetingsDone, appearances] = await Promise.all([
+  const [clubs, teams, meetings, meetingsDone, appearances, qttrRows] = await Promise.all([
     countTable('clubs'),
     countTable('teams'),
     countTable('meetings'),
     countTable('meetings', q => q.eq('state', 'done')),
-    countTable('appearances')
+    countTable('appearances'),
+    countTable('qttr')
   ]);
   let players = 0;
   try {
@@ -426,7 +517,7 @@ async function stats() {
     const { data } = await sb.from('appearances').select('person_id').limit(20000);
     players = new Set((data || []).map(r => r.person_id)).size;
   } catch { /* approximate */ }
-  return { available: true, clubs, teams, leagues, meetings, meetingsDone, appearances, players };
+  return { available: true, clubs, teams, leagues, meetings, meetingsDone, appearances, players, qttrRows };
 }
 
 module.exports = {
@@ -452,6 +543,13 @@ module.exports = {
   attachTeamScores,
   getTtr,
   setTtr,
+  qttrCutoffMs,
+  qttrIsFresh,
+  getQttr,
+  setQttr,
+  getQttrs,
+  getTtrs,
+  getStaleQttrPersonIds,
   getExistingRawMeetingIds,
   getMeetingsWithRaw,
   getAppearancesPage,
