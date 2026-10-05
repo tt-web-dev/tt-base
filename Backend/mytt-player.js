@@ -246,6 +246,28 @@ function updateCookieFromResponse(res) {
   return false;
 }
 
+// One-line failure reason for logs (no secrets, no bodies). Attached to every
+// myttFetchJson failure return so callers (warm, status) can name the cause.
+function fetchFailureReason(r) {
+  if (!r) return 'no-result';
+  if (r.rateLimited) return 'rate-limited';
+  if (r.authError) return 'auth-error';
+  if (r.networkError) return `network-error:${(r.message || '').slice(0, 80)}`;
+  if (r.badJson) return `bad-json(status=${r.status ?? '?'})`;
+  if (r.empty) return `empty(status=${r.status ?? '?'})`;
+  if (r.status) return `http-${r.status}`;
+  return 'unknown-shape';
+}
+
+// Retryable without human help (blips, myTT hiccups). Auth errors are fatal
+// instead: retrying a dead session is pointless by definition.
+function isTransientFailure(r) {
+  if (!r || r.ok) return false;
+  if (r.authError) return false;
+  if (r.rateLimited || r.networkError || r.empty || r.badJson) return true;
+  return Number(r.status) >= 500;
+}
+
 // ---------- myTT fetch wrapper ----------
 function isAuthErrorBody(body) {
   if (!body || typeof body !== 'object') return false;
@@ -262,38 +284,38 @@ async function myttFetchJson(url, { auth = false, timeoutMs = 20000 } = {}) {
     res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     console.log(`[mytt] fetch network error (${(e && e.name) || 'unknown'}): ${url}`);
-    return { ok: false, networkError: true, shape: 'fetch-failed', message: e.message };
+    return { ok: false, networkError: true, shape: 'fetch-failed', reason: `network-error:${((e && e.message) || '').slice(0, 80)}`, message: e.message };
   }
   updateCookieFromResponse(res);
   const redir = followedRedirectInfo(res);
   const redirSuffix = redir.redirected && redir.finalPath ? ` -> ${redir.finalPath}` : '';
   if (res.status === 204) {
     console.log(`[mytt] fetch 204 empty: ${url}`);
-    return { ok: false, empty: true, shape: 'empty-204', status: 204 };
+    return { ok: false, empty: true, shape: 'empty-204', reason: 'empty-204', status: 204 };
   }
   if (res.status === 429) {
     console.log(`[mytt] fetch 429 rate-limited: ${url}`);
-    return { ok: false, rateLimited: true, shape: 'rate-limited', status: 429, redirected: redir.redirected, finalPath: redir.finalPath };
+    return { ok: false, rateLimited: true, shape: 'rate-limited', reason: 'rate-limited', status: 429, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   const text = await res.text().catch(() => '');
   if (!text) {
     console.log(`[mytt] fetch empty body status=${res.status}: ${url}${redirSuffix}`);
-    return { ok: false, empty: true, shape: redir.shape || 'empty', status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
+    return { ok: false, empty: true, shape: redir.shape || 'empty', reason: `empty(status=${res.status})`, status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   let body = null;
   try { body = JSON.parse(text); } catch {
     const shape = redir.shape || bodyShape(null, text);
     console.log(`[mytt] fetch non-JSON body status=${res.status} shape=${shape}: ${url}${redirSuffix}`);
-    return { ok: false, badJson: true, shape, status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
+    return { ok: false, badJson: true, shape, reason: `bad-json(status=${res.status})`, status: res.status, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   if (!res.ok) {
     const shape = (body == null && redir.shape) || bodyShape(body, text);
     console.log(`[mytt] fetch !ok status=${res.status} shape=${shape}: ${url}${redirSuffix}`);
-    return { ok: false, status: res.status, shape, body, redirected: redir.redirected, finalPath: redir.finalPath };
+    return { ok: false, status: res.status, shape, reason: `http-${res.status}`, body, redirected: redir.redirected, finalPath: redir.finalPath };
   }
   if (isAuthErrorBody(body)) {
     console.log(`[mytt] fetch auth-error: ${url}`);
-    return { ok: false, authError: true, shape: 'auth-error', status: res.status, body };
+    return { ok: false, authError: true, shape: 'auth-error', reason: 'auth-error', status: res.status, body };
   }
   return { ok: true, status: res.status, body };
 }
@@ -451,7 +473,10 @@ async function fetchMeetingRaw(meetingId, { forceLive = false } = {}) {
     }
   }
   const r = await myttFetchJson(`https://www.mytischtennis.de/api/meeting/${meetingId}/live`);
-  if (!r.ok || !r.body || !r.body.data) return { data: null, rateLimited: !!r.rateLimited };
+  if (!r.ok || !r.body || !r.body.data) {
+    const reason = r.reason || fetchFailureReason(r);
+    return { data: null, rateLimited: !!r.rateLimited, reason, transient: isTransientFailure(r), fatal: !!r.authError };
+  }
   writeCache(key, r.body.data);
   return { data: r.body.data, fromCache: false };
 }
@@ -486,7 +511,10 @@ async function fetchLeagueGames(team, { forceLive = false } = {}) {
   }
   const url = `https://www.mytischtennis.de/click-tt/${team.association}/${team.season}/ligen/${team.league_slug}/gruppe/${team.groupId}/spielplan/${filter}?_data=routes%2Fclick-tt%2B%2F%24association%2B%2F%24season%2B%2F%24type%2B%2F%24groupname.gruppe.%24urlid%2B%2Fspielplan.%24filter`;
   const r = await myttFetchJson(url);
-  if (!r.ok || !r.body || !r.body.data) return { games: null, rateLimited: !!r.rateLimited };
+  if (!r.ok || !r.body || !r.body.data) {
+    const reason = r.reason || fetchFailureReason(r);
+    return { games: null, rateLimited: !!r.rateLimited, reason, transient: isTransientFailure(r), fatal: !!r.authError };
+  }
   const games = normalizeLeagueMeetings(r.body.data.meetings || [], r.body.data.head_infos || {});
   const leagueName = (r.body.data.head_infos || {}).league_name || '';
   writeCache(key, { games, leagueName });

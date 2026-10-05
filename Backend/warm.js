@@ -3,10 +3,13 @@
 // .github/workflows/warm-nightly.yml. Manual use:
 //   node warm.js [--club=22107] [--org=WTTV] [--season=26--27] [--rqph=40] [--retries=3] [--no-pokal]
 //
-// Rate behavior (team decision): paced at --rqph (default 40, clamp 10-90),
-// on a 429 the run sleeps 60 min and resumes from Supabase state, up to
-// --retries times, then exits 0 with a rate-limited checkpoint (next night
-// resumes automatically — finished meetings are skipped forever).
+// Rate behavior (team decision): paced at --rqph (default 40, clamp 10-90).
+// 429s AND transient failures (network blips, empty/5xx/bad-JSON answers)
+// sleep 60 min and resume from Supabase state, up to --retries times, then
+// exit 0 with a checkpoint if progress was stored (next night resumes),
+// exit 1 if nothing was stored at all. Auth failures abort exit 1
+// immediately (retrying a dead session is pointless). Every failure logs its
+// reason. Finished meetings are skipped forever.
 // Done meetings are re-fetched while younger than 2 days to catch myTT
 // corrections, then frozen. TTR is never bulk-fetched (lazy per player view).
 
@@ -40,6 +43,8 @@ function args() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 class RatePaused extends Error {}
+// Auth failures can never heal by waiting (a dead session stays dead).
+class FatalAbort extends Error {}
 
 async function main() {
   const opt = args();
@@ -75,17 +80,19 @@ async function main() {
 
   async function guarded(fn) {
     const r = await paced(fn);
-    if (r && r.rateLimited) {
-      await db.metaSet(`warm-${opt.club}-${target}`, JSON.stringify({ stopped: 'rate-limited', at: new Date().toISOString() }));
+    if (r && (r.rateLimited || r.transient)) {
+      const kind = r.rateLimited ? 'rate-limited' : `transient (${r.reason || 'unknown'})`;
+      await db.metaSet(`warm-${opt.club}-${target}`, JSON.stringify({ stopped: kind, at: new Date().toISOString() }));
       if (pausesLeft <= 0) {
-        console.log('[warm] rate-limited with no retries left - stopping, next night resumes.');
+        console.log(`[warm] ${kind} with no retries left - stopping, next night resumes.`);
         throw new RatePaused();
       }
       pausesLeft--;
-      console.log(`[warm] rate-limited - sleeping ${opt.retryWaitMin} min, then resuming (${pausesLeft} retries left).`);
+      console.log(`[warm] ${kind} - sleeping ${opt.retryWaitMin} min, then resuming (${pausesLeft} retries left).`);
       await sleep(opt.retryWaitMin * 60 * 1000);
       return guarded(fn);
     }
+    if (r && (r.fatal || r.authError)) throw new FatalAbort(r.reason || 'auth failure');
     return r;
   }
 
@@ -93,12 +100,14 @@ async function main() {
   const progress = { teamsDone: 0, teamsTotal: 0, meetingsDone: 0, meetingsNew: 0, meetingsCorrected: 0, players: new Set() };
 
   try {
-    // 1) club teams (1 public request)
+    // 1) club teams (1 public request). guarded() already retried
+    // rate-limits and transients; reaching here with unusable data means a
+    // fatal (auth) or structurally unexpected answer.
     const tr = await guarded(() => myttFetchJson(
       `https://www.mytischtennis.de/api/ttr/teams?clubNumber=${encodeURIComponent(opt.club)}&organization=${encodeURIComponent(opt.org)}`));
     reqCount++;
     if (!tr.ok || !tr.body || !Array.isArray(tr.body.data)) {
-      console.error('[warm] club teams unavailable, aborting.');
+      console.error(`[warm] club teams unavailable (${tr.reason || 'unexpected-shape'}), aborting with zero progress.`);
       process.exit(1);
     }
     const rows = tr.body.data.filter(r =>
@@ -132,7 +141,7 @@ async function main() {
       const league = await guarded(() => fetchLeagueGames(pseudo, { forceLive: true }));
       if (!league.fromCache) reqCount++;
       if (!league.games) {
-        console.log(`[warm] schedule unavailable for group ${r.group_id} (${r.league_name}), skipped`);
+        console.log(`[warm] schedule unavailable for group ${r.group_id} (${r.league_name}), skipped (${league.reason || 'unknown'})`);
         continue;
       }
       await db.upsertLeague(String(r.group_id), league.leagueName || r.league_name, target, competition, league.games);
@@ -168,7 +177,7 @@ async function main() {
         if (!fetched.fromCache) reqCount++;
         progress.meetingsDone++;
         if (!fetched.data || !Array.isArray(fetched.data.match)) {
-          console.log(`[warm]   meeting ${g.meetingId}: unavailable, skipped`);
+          console.log(`[warm]   meeting ${g.meetingId}: unavailable, skipped (${fetched.reason || 'unknown'})`);
           continue;
         }
         const raw = fetched.data;
@@ -265,8 +274,17 @@ async function main() {
     console.log('[warm] verified stored in Supabase:', JSON.stringify(s));
   } catch (e) {
     if (e instanceof RatePaused) {
-      console.log('[warm] paused by rate limit - next night resumes automatically.');
-      process.exit(0);
+      const storedAnything = progress.teamsDone > 0 || progress.meetingsNew > 0 || progress.meetingsCorrected > 0;
+      if (storedAnything) {
+        console.log('[warm] paused with progress stored - next night resumes automatically.');
+        process.exit(0);
+      }
+      console.error('[warm] paused with zero progress stored - needs attention, exiting 1.');
+      process.exit(1);
+    }
+    if (e instanceof FatalAbort) {
+      console.error('[warm] fatal auth failure, manual attention needed:', e.message);
+      process.exit(1);
     }
     throw e;
   }
