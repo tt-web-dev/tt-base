@@ -1,6 +1,7 @@
 Ideas:
 
 !fixes
+-scoring uses current TTR first, but it should use the ttr at the point of the match, which would be fed_rank, qttr fallback also needs to be changed to use the qttr from that point in time (or rather the time-nearest qttr) for past matches
 -implement logo into site (loading icon?)
 
 !features
@@ -22,3 +23,7 @@ Ideas:
 ✅-fine-tune the scoring system (->Punktetabelle)
 
 !hosting:
+
+!nice to have (cool gimmick features, not on roadmap though):
+-Verletzungen Anzeige wie in Kickbase
+-Marktwert einabauen

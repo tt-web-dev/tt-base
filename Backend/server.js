@@ -4,6 +4,54 @@
 //set the teams shown by default to active = true
 var teams = [
   {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "2._Bezirksliga_5_(4er)_Erwachsene",
+    "groupId": "522200",
+    "teamId": "3106660",
+    "teamName": "TSV_Bonn_rrh._III",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "Herren I (26/27)"
+  },
+  {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "Erwachsene_1._Bezirksklasse_4_(4er)",
+    "groupId": "522044",
+    "teamId": "3107405",
+    "teamName": "TSV_Bonn_rrh._II",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "Herren II (26/27)"
+  },
+  {
+    "active": true,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "2._Bezirksklasse_4_Erwachsene",
+    "groupId": "522558",
+    "teamId": "3106565",
+    "teamName": "TSV_Bonn_rrh._III",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "Herren III (26/27)"
+  },
+  {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "3._Bezirksklasse_5_Erwachsene",
+    "groupId": "522877",
+    "teamId": "3109371",
+    "teamName": "TSV_Bonn_rrh._IV",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "Herren IV (26/27)"
+  },
+  {
     "active": true,
     "association": "WTTV",
     "season": "26--27",
@@ -19,25 +67,61 @@ var teams = [
     "active": false,
     "association": "WTTV",
     "season": "26--27",
-    "league_slug": "3._Bezirksklasse_5_Erwachsene",
-    "groupId": "522877",
-    "teamId": "3109371",
-    "teamName": "TSV_Bonn_rrh._IV",
+    "league_slug": "2._Bezirksliga_2_Jugend_19",
+    "groupId": "522295",
+    "teamId": "3105319",
+    "teamName": "TSV_Bonn_rrh._II",
     "filter": "vr",
     "clubId": "22107",
-    "anzeigeName": "Herren IV (26/27)"
+    "anzeigeName": "U19 II (26/27)"
   },
   {
     "active": false,
     "association": "WTTV",
     "season": "26--27",
-    "league_slug": "2._Bezirksklasse_4_Erwachsene",
-    "groupId": "522558",
-    "teamId": "3106565",
+    "league_slug": "1._Bezirksklasse_Gruppe_2_Jugend_19",
+    "groupId": "522415",
+    "teamId": "3141442",
     "teamName": "TSV_Bonn_rrh._III",
     "filter": "vr",
     "clubId": "22107",
-    "anzeigeName": "Herren III (26/27)"
+    "anzeigeName": "U19 III (26/27)"
+  },
+  {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "Bezirksoberliga_Jugend_15",
+    "groupId": "522660",
+    "teamId": "3109341",
+    "teamName": "TSV_Bonn_rrh.",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "U15 I (26/27)"
+  },
+  {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "1._Bezirksliga_1_Jugend_15",
+    "groupId": "522055",
+    "teamId": "3105547",
+    "teamName": "TSV_Bonn_rrh._II",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "U15 II (26/27)"
+  },
+  {
+    "active": false,
+    "association": "WTTV",
+    "season": "26--27",
+    "league_slug": "2._Bezirksliga_Jugend_13_Gruppe_2",
+    "groupId": "528417",
+    "teamId": "3110340",
+    "teamName": "TSV_Bonn_rrh.",
+    "filter": "vr",
+    "clubId": "22107",
+    "anzeigeName": "U13 (26/27)"
   },
   {
     "active": false,
@@ -50,7 +134,7 @@ var teams = [
     "filter": "rr",
     "clubId": "22107",
     "anzeigeName": "U19 I (25/26)"
-  }
+  },
 ]
 
 const TSV_clubId = "22107"
