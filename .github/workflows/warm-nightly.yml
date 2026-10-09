@@ -8,6 +8,10 @@ name: warm-nightly
 on:
   schedule:
     - cron: '0 1 * * *'
+    # Optional second run for same-day bars (e.g. evenings): the warm is
+    # resumable and fetches only the delta, so uncommenting costs ~20-30
+    # calls. Parked to preserve budget for future features (see ideas.txt).
+    # - cron: '0 20 * * *'
   workflow_dispatch:
 
 jobs:
@@ -28,7 +32,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      - run: npm run warm -- --rqph=40 --retries=3
+      - run: npm run warm -- --rqph=120 --retries=3
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

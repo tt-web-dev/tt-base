@@ -26,3 +26,6 @@ Ideas:
 !nice to have (cool gimmick features, not on roadmap though):
 -Verletzungen Anzeige wie in Kickbase
 -Marktwert einbauen
+
+!notes (to myself and future agents)
+-Measured myTT budget is one shared 360 req/30min pool (not per-endpoint), so the warm runs at 120/h with headroom to spare — an evening top-up run for same-day bars needs only uncommenting one cron line, but stays parked to preserve budget for future features.

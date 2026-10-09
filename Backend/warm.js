@@ -1,9 +1,11 @@
 // Nightly warmer: fills the Supabase DB with a club's whole season (leagues + Pokal).
 // Runs on GitHub Actions at 01:00 UTC (= 03:00 CEST, fixed UTC+2) via
 // .github/workflows/warm-nightly.yml. Manual use:
-//   node warm.js [--club=22107] [--org=WTTV] [--season=26--27] [--rqph=40] [--retries=3] [--no-pokal]
+//   node warm.js [--club=22107] [--org=WTTV] [--season=26--27] [--rqph=120] [--retries=3] [--no-pokal]
 //
-// Rate behavior (team decision): paced at --rqph (default 40, clamp 10-90).
+// Rate behavior (team decision): paced at --rqph (default 120, clamp 10-300;
+// measured myTT budget is one shared 360 req/30min pool, so 120/h keeps wide
+// headroom for live traffic).
 // 429s AND transient failures (network blips, empty/5xx/bad-JSON answers)
 // sleep 60 min and resume from Supabase state, up to --retries times, then
 // exit 0 with a checkpoint if progress was stored (next night resumes),
@@ -24,7 +26,7 @@ const {
 } = require('./mytt-player');
 
 function args() {
-  const out = { club: '22107', org: 'WTTV', season: '26--27', rqph: 40, retries: 3, retryWaitMin: 60, pokal: true };
+  const out = { club: '22107', org: 'WTTV', season: '26--27', rqph: 120, retries: 3, retryWaitMin: 60, pokal: true };
   for (const a of process.argv.slice(2)) {
     const m = a.match(/^--([^=]+)(=(.*))?$/);
     if (!m) continue;
@@ -32,7 +34,7 @@ function args() {
     if (k === 'club') out.club = v;
     else if (k === 'org') out.org = v;
     else if (k === 'season') out.season = v;
-    else if (k === 'rqph') out.rqph = Math.max(10, Math.min(90, parseInt(v, 10) || 40));
+    else if (k === 'rqph') out.rqph = Math.max(10, Math.min(300, parseInt(v, 10) || 120));
     else if (k === 'retries') out.retries = Math.max(0, Math.min(10, parseInt(v, 10) || 0));
     else if (k === 'retry-wait-min') out.retryWaitMin = Math.max(5, parseInt(v, 10) || 60);
     else if (k === 'no-pokal') out.pokal = false;
