@@ -1,6 +1,15 @@
 import { openPlayerView } from './player-view.js'
+import { noteFullResult } from './matchstate.js'
 
 export function meetingModal(meetingInfo) {
+    // Scheduled (not yet played) meetings render a fixture card instead of scores.
+    if (meetingInfo && meetingInfo.scheduled) {
+        renderScheduledMeeting(meetingInfo);
+        return;
+    }
+    // Proven-played result: remember for calendar/liga restyle (local only,
+    // warm data wins conflicts). Drives the 'matchday-known-done' event.
+    try { noteFullResult(meetingInfo); } catch { /* never break rendering */ }
     const modalBody = document.getElementById('meeting-modal-body')
     const meetingElement = document.querySelector('[template="modal-meeting-item"]').content.cloneNode(true)
 
@@ -115,6 +124,75 @@ export function meetingModal(meetingInfo) {
     })
 
     modalBody.appendChild(meetingElement)
+}
+
+// Fixture card for scheduled meetings: same Kickbase shell (date pill,
+// league, matchup with logos), result area shows time + note instead of a
+// score, no player rows or coaches (unknown pre-match).
+function renderScheduledMeeting(info) {
+    const modalBody = document.getElementById('meeting-modal-body')
+    if (!modalBody) return
+    const meetingElement = document.querySelector('[template="modal-meeting-item"]').content.cloneNode(true)
+
+    const dateElement = meetingElement.querySelector('[data="meeting-modal-date"]')
+    const leagueNameElement = meetingElement.querySelector('[data="meeting-modal-leaguename"]')
+    const homeTeamElement = meetingElement.querySelector('[data="meeting-modal-team-home"]')
+    const awayTeamElement = meetingElement.querySelector('[data="meeting-modal-team-away"]')
+    const homeLogoElement = meetingElement.querySelector('[data="meeting-modal-logo-home"]')
+    const awayLogoElement = meetingElement.querySelector('[data="meeting-modal-logo-away"]')
+    const resultElement = meetingElement.querySelector('.matchresult')
+
+    dateElement.textContent = formatDay(info.date)
+    leagueNameElement.textContent = info.league || ''
+    homeTeamElement.textContent = info.home_team_name || '—'
+    awayTeamElement.textContent = info.away_team_name || '—'
+    setLogoOrFallback(homeLogoElement, info.home_clubId)
+    setLogoOrFallback(awayLogoElement, info.away_clubId)
+
+    resultElement.replaceChildren()
+    const time = document.createElement('span')
+    time.className = 'scheduled-time'
+    time.textContent = formatTime(info.date)
+    resultElement.appendChild(time)
+
+    const note = document.createElement('div')
+    note.className = 'scheduled-note'
+    note.textContent = 'Noch nicht gespielt'
+    meetingElement.querySelector('.meeting-container').appendChild(note)
+
+    // no player rows pre-match; hide the (empty) coach lines
+    meetingElement.querySelectorAll('.scores-wrapper .coach').forEach(el => { el.style.display = 'none' })
+
+    modalBody.appendChild(meetingElement)
+}
+
+function setLogoOrFallback(img, clubId) {
+    if (!img) return
+    img.onerror = () => {
+        if (!img.dataset.fallback) {
+            img.dataset.fallback = 'true'
+            img.src = 'imgs/table-tennis.png'
+        } else {
+            img.style.display = 'none'
+        }
+    }
+    img.src = clubId ? `/logos/${clubId}.png` : 'imgs/table-tennis.png'
+}
+
+// 'YYYY-MM-DD[THH:mm]' -> 'Sa, 04.10.' (falls back to raw input)
+function formatDay(datestring) {
+    const m = String(datestring || '').match(/(\d{4})-(\d{2})-(\d{2})/)
+    if (!m) return String(datestring || '')
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], 12))
+    const s = d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' })
+    return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+// 'YYYY-MM-DDTHH:mm' -> 'HH:MM' ('' when no time known)
+function formatTime(datestring) {
+    const m = String(datestring || '').match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
+    if (!m) return ''
+    return `${m[4]}:${m[5]}`
 }
 
 //myTT API times are UTC wall time, venue time is +2h - shift literally,

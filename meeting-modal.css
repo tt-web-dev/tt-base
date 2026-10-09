@@ -62,6 +62,21 @@
 .meeting-container .matchresult {
     font-size: 2.5em;
 }
+/* scheduled fixture card: time instead of a score, plus note */
+.meeting-container .scheduled-time {
+    font-family: KB_Pitch-Still;
+    font-size: 0.85em;
+    color: var(--White);
+    white-space: nowrap;
+}
+.meeting-container .scheduled-note {
+    display: flex;
+    justify-content: center;
+    font-family: KB_Volksans-Regular;
+    font-size: 0.8em;
+    letter-spacing: 0.04em;
+    color: var(--Light-Grey);
+}
 .meeting-container .scores-wrapper {
     display: flex;
     justify-content: space-between;

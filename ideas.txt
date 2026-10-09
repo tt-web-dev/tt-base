@@ -6,18 +6,17 @@ Ideas:
 
 !features
 -admin login on settings page for more control
+-player search (->myTT API)
+-MVP
 
 -Team view ("Leistung" tab, but with added scores of whole team)
 
 -Score breakdown (for each player, like in kickbase)
 -normale, vollständige Ansicht der Spiele (-> myTT/Canva posts)
 
--player search (->myTT API)
-
 -show league table (normal table + table of TT-Kickbase Scores?)
 
 !at the end, with deep planning:
-✅-database use (nightly "npm run warm"?) (some of the request budget to update database every hour, rest reserved for individual use of website -> e.g. ttr)?
 -check for bad code practices or bugs (with a skill?)
 -optimize site for mobile
 ✅-fine-tune the scoring system (->Punktetabelle)
@@ -26,4 +25,4 @@ Ideas:
 
 !nice to have (cool gimmick features, not on roadmap though):
 -Verletzungen Anzeige wie in Kickbase
--Marktwert einabauen
+-Marktwert einbauen

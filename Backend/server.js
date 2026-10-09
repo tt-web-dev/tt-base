@@ -329,8 +329,31 @@ async function getMeetingInfo(data) {
   }
   
   const gameInfo = {...meetingInfo, ...matchInfo}
-  
+
   return gameInfo
+}
+
+// Scheduled (not yet played) meeting card payload for the modal: names and
+// date from the warm's schedule skeleton, no scores. Lets users open matches
+// right after (or before) they happen instead of waiting for the nightly warm.
+async function getScheduledInfo(stored) {
+  let leagueName = '';
+  try {
+    if (stored && stored.group_id && db.available()) {
+      const lg = await db.getLeague(stored.group_id, 'gesamt').catch(() => null);
+      if (lg && lg.league_name) leagueName = lg.league_name;
+    }
+  } catch { /* ignore */ }
+  return {
+    scheduled: true,
+    meetingId: stored ? stored.meeting_id : null,
+    date: stored ? stored.date : null,
+    league: leagueName,
+    home_team_name: stored ? (stored.home_name || '') : '',
+    away_team_name: stored ? (stored.away_name || '') : '',
+    home_clubId: stored ? stored.home_club : null,
+    away_clubId: stored ? stored.away_club : null
+  };
 }
 
 //^^^^^^^^^^general functions^^^^^^^^
@@ -769,8 +792,24 @@ app.get('/meeting/:id', async (req, res) => {
       throw new Error(`Fetch error: ${response.status}`);
     }
     const body = await response.json();
+    const hasResults = body && body.data && Array.isArray(body.data.match) && body.data.match.length > 0;
+    if (!hasResults) {
+      // Live answered but empty (not yet played): scheduled card from the
+      // stored skeleton if we know the fixture, else honest 404.
+      try {
+        if (db.available()) {
+          const stored = await db.getMeeting(id).catch(() => null);
+          if (stored && stored.raw) return res.send(await getMeetingInfo(stored.raw));
+          if (stored && (stored.home_name || stored.away_name || stored.date)) {
+            return res.send(await getScheduledInfo(stored));
+          }
+        }
+      } catch { /* ignore */ }
+      return res.status(404).send({ error: 'Noch keine Daten für dieses Spiel.' });
+    }
     const info = await getMeetingInfo(body.data);
     // First-open store (raw only). Never fail the response on store errors.
+    // Q-TTR background fill only makes sense with actual match data present.
     try {
       if (db.available() && body.data) {
         const d = body.data;
@@ -802,12 +841,18 @@ app.get('/meeting/:id', async (req, res) => {
     } catch { /* ignore */ }
 
   } catch (error) {
+    // Stale fallbacks, silent: full stored data first, then the scheduled
+    // skeleton card. Only truly unknown ids end in an error.
     try {
       if (db.available()) {
         const stored = await db.getMeeting(id).catch(() => null);
         if (stored && stored.raw) {
           console.log(`Serving stale meeting ${id} from Supabase.`);
           return res.send(await getMeetingInfo(stored.raw));
+        }
+        if (stored && (stored.home_name || stored.away_name || stored.date)) {
+          console.log(`Serving scheduled meeting ${id} from Supabase.`);
+          return res.send(await getScheduledInfo(stored));
         }
       }
     } catch { /* ignore */ }

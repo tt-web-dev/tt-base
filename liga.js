@@ -1,4 +1,5 @@
 import { meetingModal } from './meeting-modal.js'
+import { getKnownDone, isFixtureDay, noteFullResult } from './matchstate.js'
 import { spinnerEl, showMeetingLoading } from './loading.js'
 
 const API = (typeof window !== 'undefined' && window.TT_API_BASE) || '';
@@ -102,6 +103,10 @@ async function loadLiga(groupId) {
         renderLeagueListWithRealNames()
         renderMatchdays()
         jumpToNearest()
+        // Same-day truth for this league's fixture-day meetings (yesterday +
+        // today, Berlin): a few bounded live fetches, results upgrade rows
+        // via the 'matchday-known-done' event below.
+        refreshLeagueToday()
     } catch (error) {
         console.error(error)
         setStatus('Spielplan konnte nicht geladen werden.')
@@ -191,6 +196,55 @@ function reloadCurrentView() {
         loadLiga(selectedGroupId)
     }
 }
+
+async function refreshLeagueToday() {
+    try {
+        if (!ligaData || !Array.isArray(ligaData.matchdays)) return
+        const games = []
+        for (const day of ligaData.matchdays) {
+            for (const group of day.dateGroups || []) {
+                for (const game of group.games || []) {
+                    if (game.state !== 'done' && game.meetingId != null &&
+                        isFixtureDay(game.date) && !getKnownDone(game.meetingId)) {
+                        games.push(game)
+                    }
+                }
+            }
+        }
+        const batch = games.slice(0, 15)
+        if (!batch.length) return
+        await Promise.allSettled(batch.map(game =>
+            fetch(`${API}/meeting/${encodeURIComponent(game.meetingId)}`)
+                .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json() })
+                .then(info => { noteFullResult(info) })
+                .catch(() => {})
+        ))
+        // Rows upgrade through the 'matchday-known-done' listener below.
+    } catch { /* best-effort only */ }
+}
+
+// A modal just proved a result (any entry path): patch this league's data
+// and redraw, so the row flips behind/beside the modal immediately.
+document.addEventListener('matchday-known-done', (event) => {
+    try {
+        const d = (event && event.detail) || {}
+        if (d.meetingId == null || !ligaData || !Array.isArray(ligaData.matchdays)) return
+        let touched = false
+        for (const day of ligaData.matchdays) {
+            for (const group of day.dateGroups || []) {
+                for (const game of group.games || []) {
+                    if (String(game.meetingId) === String(d.meetingId) && game.state !== 'done') {
+                        game.state = 'done'
+                        game.homeScore = d.hw
+                        game.awayScore = d.aw
+                        touched = true
+                    }
+                }
+            }
+        }
+        if (touched) renderMatchdays()
+    } catch { /* ignore */ }
+})
 
 async function loadTable(groupId, force = false) {
     const tableEl = document.getElementById('liga-table')
@@ -317,10 +371,17 @@ function pillLabel(dateString) {
 }
 
 function buildMatchRow(game) {
-    const finished = game.state === 'done'
-    const row = document.createElement(finished ? 'button' : 'div')
+    // Locally remembered results upgrade scheduled rows without waiting for
+    // the nightly warm (schedule 'done' always wins; see matchstate.js).
+    const known = game.meetingId != null ? getKnownDone(game.meetingId) : null;
+    const finished = game.state === 'done' || !!known
+    const homeScore = known ? known.hw : game.homeScore
+    const awayScore = known ? known.aw : game.awayScore
+    // Every row is clickable: finished matches render scores, scheduled ones
+    // a fixture card (usable right after the match). Styling unchanged.
+    const row = document.createElement('button')
+    row.type = 'button'
     row.className = 'liga-match' + (finished ? ' is-done' : ' is-scheduled')
-    if (finished) row.type = 'button'
     const isOwn = String(game.homeClubId) === TSV_CLUB_ID || String(game.awayClubId) === TSV_CLUB_ID
     if (isOwn) row.classList.add('is-own')
 
@@ -339,7 +400,7 @@ function buildMatchRow(game) {
 
     const center = document.createElement('span')
     center.className = 'center'
-    center.textContent = finished ? `${game.homeScore} - ${game.awayScore}` : timeOf(game.date)
+    center.textContent = finished ? `${homeScore} - ${awayScore}` : timeOf(game.date)
 
     const awayLogo = document.createElement('img')
     awayLogo.src = `./logos/${game.awayClubId}.png`
@@ -356,9 +417,7 @@ function buildMatchRow(game) {
 
     row.append(homeName, homeLogo, center, awayLogo, awayName)
 
-    if (finished) {
-        row.addEventListener('click', () => openMeeting(game.meetingId))
-    }
+    row.addEventListener('click', () => openMeeting(game.meetingId))
     return row
 }
 

@@ -193,8 +193,8 @@ button.liga-match:hover {
     border-color: var(--Grey);
 }
 
-.liga-match.is-scheduled {
-    cursor: default;
+button.liga-match {
+    cursor: pointer;
 }
 
 .liga-match .team {

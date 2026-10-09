@@ -1,5 +1,6 @@
 import { meetingModal } from './meeting-modal.js'
 import { spinnerEl, showMeetingLoading } from './loading.js'
+import { getKnownDone, tsvState, isFixtureDay, noteFullResult } from './matchstate.js'
 
 const API = (typeof window !== 'undefined' && window.TT_API_BASE) || '';
 //import * as modal from './modal.js';
@@ -17,7 +18,7 @@ document.addEventListener("date-change", (event) => {
     //wenn ja: Kontextmenü für das Spiel öffnen
 
     const todaysMeetings = matchdays.filter(m =>
-        m.state != "scheduled" && isTheSameDay(formatDate(m.date), selectedDate)
+        isTheSameDay(formatDate(m.date), selectedDate)
     );
     if (todaysMeetings.length === 0) {
         return;
@@ -29,7 +30,7 @@ document.addEventListener("date-change", (event) => {
         showMeetingLoading(modalBody, 'Lade Spieldaten …');
     }
 
-    let firstDone = false;
+    let firstRendered = false;
     for (var i = 0; i < todaysMeetings.length; i++) {
         fetch(`${API}/meeting/${todaysMeetings[i].meetingId}`)
             .then(response => {
@@ -43,16 +44,17 @@ document.addEventListener("date-change", (event) => {
                 console.log('meetingInfo:', meetingInfo)
                 //show modified modal body
                 //just call imported function that takes meetingInfo as param
-                if (modalBody && !firstDone) {
-                    firstDone = true;
+                //works for played (scores) and scheduled (fixture card) alike
+                if (modalBody && !firstRendered) {
+                    firstRendered = true;
                     modalBody.replaceChildren();
                 }
                 meetingModal(meetingInfo)
             })
             .catch(error => {
                 console.log(error)
-                if (modalBody && !firstDone) {
-                    firstDone = true;
+                if (modalBody && !firstRendered) {
+                    firstRendered = true;
                     modalBody.replaceChildren();
                     modalBody.textContent = 'Spieldetails konnten nicht geladen werden.';
                 }
@@ -224,8 +226,11 @@ function getUrlDate() {
     return date ? new Date(date) : today();
 }
 
+const calendarRerenders = [];
+
 function initMiniCalendars() {
     const calendarElements = document.querySelectorAll("[calendar]");
+    calendarRerenders.length = 0;
 
     for (const calendarElement of calendarElements) {
         initMiniCalendar(calendarElement);
@@ -247,6 +252,12 @@ function initMiniCalendar(calendarElement) {
             selectedDate
         );
     }
+
+    // Registered so same-day refreshes and modal-driven updates can redraw
+    // all calendars without disturbing the viewed month.
+    calendarRerenders.push(() => {
+        try { refreshMiniCalendar(); } catch { /* ignore */ }
+    });
 
     calendarPreviousButtonElement.addEventListener("click", () => {
         miniCalendarDate = subtractMonths(miniCalendarDate, 1);
@@ -288,6 +299,52 @@ function setMatchdayBorder(element, state) {
         element.classList.add("matchday-btn-l");
     }
 }
+
+// Effective border state: server state wins for w/r/l; a locally remembered
+// proven result upgrades 'scheduled' without waiting for the nightly warm.
+// (Calendar cells always involve a TSV team, so w/r/l is well-defined.)
+function borderStateFor(m) {
+    if (m && (m.state === 'w' || m.state === 'r' || m.state === 'l')) return m.state;
+    const known = m ? getKnownDone(m.meetingId) : null;
+    if (known) return tsvState(known.hw, known.aw, known.hc, known.ac);
+    return 'scheduled';
+}
+
+// Refresh states for fixture-day meetings (yesterday + today, Berlin):
+// a few live fetches that make "today" truthful without touching the warm.
+// Results flow through noteFullResult -> 'matchday-known-done' -> rerender.
+async function refreshTodayStates() {
+    try {
+        const candidates = matchdays.filter(m =>
+            (m.state === 'scheduled' || !m.state) &&
+            m.meetingId != null &&
+            isFixtureDay(m.date) &&
+            !getKnownDone(m.meetingId)
+        ).slice(0, 15);
+        if (!candidates.length) return;
+        await Promise.allSettled(candidates.map(m =>
+            fetch(`${API}/meeting/${m.meetingId}`)
+                .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+                .then(info => { noteFullResult(info); })
+                .catch(() => {})
+        ));
+    } catch { /* best-effort only */ }
+}
+
+// A modal just proved a result (any entry path): patch the in-memory schedule
+// truth and redraw, so the cell flips behind/beside the modal immediately.
+document.addEventListener('matchday-known-done', (event) => {
+    try {
+        const d = (event && event.detail) || {};
+        if (d.meetingId == null) return;
+        const known = getKnownDone(d.meetingId);
+        const m = matchdays.find(x => String(x.meetingId) === String(d.meetingId));
+        if (m && known && m.state !== 'w' && m.state !== 'r' && m.state !== 'l') {
+            m.state = tsvState(known.hw, known.aw, known.hc, known.ac);
+        }
+        calendarRerenders.forEach(fn => { try { fn(); } catch { /* ignore */ } });
+    } catch { /* ignore */ }
+});
 
 function buildLogoStack(dayMeetings) {
     const stack = document.createElement('div');
@@ -368,20 +425,20 @@ function refreshDayListElement(parent, miniCalendarDate, selectedDate) {
         }
 
         if (dayMeetings.length > 0) {
-            const playable = dayMeetings.filter(m => m.state != "scheduled");
-
             // Start with the first meeting's state; the rotator below keeps
             // the border in sync with whichever logo is currently visible.
-            setMatchdayBorder(calendarDayElement, dayMeetings[0].state);
-            if (playable.length > 0) {
-                calendarDayElement.setAttribute('data-modal-target', '#meeting-modal');
-            }
+            // Locally known results (opened modals, today-refresh) upgrade
+            // scheduled cells without waiting for the nightly warm.
+            setMatchdayBorder(calendarDayElement, borderStateFor(dayMeetings[0]));
+            // Every matchday opens the modal: played meetings render scores,
+            // scheduled ones a fixture card (usable right after the match).
+            calendarDayElement.setAttribute('data-modal-target', '#meeting-modal');
             calendarDayElement.replaceChildren(buildLogoStack(dayMeetings));
             calendarDayElement.classList.add("matchday-btn");
             if (dayMeetings.length > 1) {
                 calendarDayElement.dataset.multi = "true";
                 calendarDayElement.dataset.index = "0";
-                calendarDayElement.dataset.states = dayMeetings.map(m => m.state).join(",");
+                calendarDayElement.dataset.states = dayMeetings.map(borderStateFor).join(",");
             }
         }
 
@@ -447,6 +504,9 @@ export function loadMatchdays() {
         console.log('matchdays: ', matchdays)
         initMiniCalendars();
         hideCalendarLoading()
+        // Same-day truth for fixture-day meetings (yesterday + today):
+        // a few bounded live fetches, results upgrade cells via event.
+        refreshTodayStates();
     })
     .catch(error => {
         if (requestId !== loadMatchdaysRequestId) return
