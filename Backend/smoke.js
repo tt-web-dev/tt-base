@@ -70,7 +70,7 @@ async function main() {
   const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
   console.log('[smoke] 3) tables exist');
-  const tables = ['clubs', 'teams', 'leagues', 'meetings', 'appearances', 'ttr', 'qttr', 'meta'];
+  const tables = ['clubs', 'teams', 'leagues', 'meetings', 'appearances', 'ttr', 'qttr', 'ttr_history', 'qttr_history', 'meta'];
   for (const t of tables) {
     const { error } = await sb.from(t).select('*', { count: 'exact', head: true });
     if (error) fail(`table "${t}"`, error.message);

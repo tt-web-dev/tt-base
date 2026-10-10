@@ -712,6 +712,8 @@ async function getPlayerProfile(nuid) {
   writeCache(key, profile);
   if (db.available()) {
     try { await db.setTtr(nuid, profile); } catch { /* ephemeral, ignore */ }
+    // Append-only snapshot for point-in-time scoring (history, not latest).
+    try { if (profile.ttr != null) await db.recordTtrSnapshot(nuid, profile.ttr); } catch { /* ignore */ }
   }
   return { ...profile, fromCache: false };
 }
@@ -760,11 +762,13 @@ function distinctPersonIds(match) {
   return [...set];
 }
 
-// Fill missing fed_rank slots from stored ratings (official TTR <=60d, then
-// match-time fed_rank, then Q-TTR) so getScore sees values. Returns a copied
-// match plus per-person source map for ttr_source bookkeeping. scoring.js
-// itself stays pure I/O-free.
-async function resolveMatchRatings(match, nowMs = Date.now()) {
+// Fill missing fed_rank slots from point-in-time ratings so getScore sees
+// values. Chain per match date (team decision): match-time fed_rank first,
+// then the stored official snapshot nearest the date (±45d), then the Q-TTR
+// valid at the date (history, current stored as fallback), else none.
+// Returns a copied match plus per-person {source, value, vintage} for
+// ttr_source bookkeeping. scoring.js itself stays pure I/O-free.
+async function resolveMatchRatings(match, matchDate) {
   const sources = {};
   const filled = (match || []).map(g => {
     const copy = { ...g };
@@ -774,10 +778,16 @@ async function resolveMatchRatings(match, nowMs = Date.now()) {
     return copy;
   });
   const ids = distinctPersonIds(match);
-  let ttrs = {}, qttrs = {};
+  let tHist = {}, qHist = {}, qCur = {};
   if (db.available() && ids.length) {
-    try { [ttrs, qttrs] = await Promise.all([db.getTtrs(ids), db.getQttrs(ids)]); }
-    catch { ttrs = {}; qttrs = {}; }
+    try {
+      const [th, qh, qc] = await Promise.all([
+        db.getTtrHistoryNear(ids, matchDate),
+        db.getQttrHistoryAt(ids, matchDate),
+        db.getQttrs(ids)
+      ]);
+      tHist = th; qHist = qh; qCur = qc;
+    } catch { tHist = {}; qHist = {}; qCur = {}; }
   }
   const fedOf = (pid) => {
     for (const g of match || []) {
@@ -789,12 +799,23 @@ async function resolveMatchRatings(match, nowMs = Date.now()) {
   };
   const picked = {};
   for (const pid of ids) {
-    const t = ttrs[pid], q = qttrs[pid];
+    const t = tHist[pid];
+    const qh = qHist[pid];
+    const qc = qCur[pid];
+    // History vintage first; current stored Q-TTR only as flagged fallback.
+    let q = qh || null, qVintage = qh ? qh.vintage : null;
+    if (!q && qc && qc.qttr != null) {
+      const ts = Number(qc.updatedAt);
+      q = qc.qttr;
+      qVintage = Number.isFinite(ts) ? new Date(ts).toISOString().slice(0, 10) : null;
+    }
     picked[pid] = pickRating({
-      official: t ? t.ttr : null, officialAt: t ? t.updatedAt : 0,
-      fedRank: fedOf(pid), qttr: q ? q.qttr : null, nowMs
+      fedRank: fedOf(pid),
+      matchDate,
+      official: t ? t.ttr : null, officialAt: t ? t.fetchedAt : 0,
+      qttr: q, qttrVintage: qVintage
     });
-    sources[pid] = picked[pid].source;
+    sources[pid] = picked[pid];
   }
   for (const g of filled) {
     for (const s of ['mm_player11', 'mm_player12', 'mm_player21', 'mm_player22']) {
@@ -878,12 +899,13 @@ async function fillMissingCareer(nuid, clubId, season, getTeams) {
           season, competition: 'league', raw, frozen: false
         });
         const persons = distinctPersonIds(raw.match);
-        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match, raw.start_date || g.date).catch(() => ({ match: raw.match, sources: {} }));
         const filledRaw = { ...raw, match: filledMatch };
         const rows = [];
         for (const pid of persons) {
           const pm = computePlayerMeeting(filledRaw, pid);
           if (!pm) continue;
+          const src = sources[pid] || {};
           rows.push({
             person_id: pid, meeting_id: String(g.meetingId), side: pm.side,
             player_score: pm.playerScore, wins: pm.wins, losses: pm.losses,
@@ -893,7 +915,9 @@ async function fillMissingCareer(nuid, clubId, season, getTeams) {
             club_id: pm.clubId ? String(pm.clubId) : null, team_name: pm.teamName,
             opponent_name: pm.opponentName, opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
             date: pm.date, season, competition: 'league',
-            ttr_source: sources[pid] || 'none'
+            ttr_source: src.source || 'none',
+            rating_value: src.value ?? null,
+            rating_vintage: src.vintage || null
           });
         }
         await db.upsertAppearances(rows);

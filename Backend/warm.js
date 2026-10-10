@@ -202,15 +202,18 @@ async function main() {
         });
         if (stored && stored.raw) progress.meetingsCorrected++;
         else progress.meetingsNew++;
-        // Rating fill (official<=60d -> fed_rank -> Q-TTR) so TTR bonuses
-        // compute even where myTT ships fed_rank:null. Sources recorded per row.
-        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+        // Rating fill point-in-time per match date (fed_rank -> official
+        // snapshot nearest the date -> Q-TTR valid at the date) so TTR
+        // bonuses compute even where myTT ships fed_rank:null. Sources and
+        // vintages recorded per row for auditability.
+        const { match: filledMatch, sources } = await resolveMatchRatings(raw.match, raw.start_date || g.date).catch(() => ({ match: raw.match, sources: {} }));
         const filledRaw = { ...raw, match: filledMatch };
         const rows2 = [];
         for (const personId of distinctPersons(filledMatch)) {
           const pm = computePlayerMeeting(filledRaw, personId);
           if (!pm) continue;
           progress.players.add(personId);
+          const src = sources[personId] || {};
           rows2.push({
             person_id: personId,
             meeting_id: String(g.meetingId),
@@ -231,7 +234,9 @@ async function main() {
             date: pm.date,
             season: target,
             competition,
-            ttr_source: sources[personId] || 'none'
+            ttr_source: src.source || 'none',
+            rating_value: src.value ?? null,
+            rating_vintage: src.vintage || null
           });
         }
         await db.upsertAppearances(rows2);

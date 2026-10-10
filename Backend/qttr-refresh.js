@@ -28,6 +28,14 @@ async function main() {
   const stale = await db.getStaleQttrPersonIds(limit);
   console.log(`[qttr] ${stale.length} persons need Q-TTR (missing or past quarterly cutoff).${dryRun ? ' DRY RUN - no fetches.' : ''}`);
   if (dryRun) return;
+  // Seed history from already-stored latest values first (no fetches):
+  // past quarters become resolvable for vintage-correct scoring immediately.
+  try {
+    const { seeded } = await db.seedQttrHistory();
+    if (seeded) console.log(`[qttr] seeded ${seeded} history rows from stored values.`);
+  } catch (e) {
+    console.log('[qttr] history seed skipped:', e.message);
+  }
   let ok = 0, failed = 0, limited = false;
   for (const pid of stale) {
     await sleep(paceMs);

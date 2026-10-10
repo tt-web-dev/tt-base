@@ -106,6 +106,37 @@ CREATE TABLE IF NOT EXISTS qttr (
 -- (ttr = stored official, fed = match-time fed_rank, qttr = quarterly fallback).
 -- ALTER for databases created before this column existed (idempotent).
 ALTER TABLE appearances ADD COLUMN IF NOT EXISTS ttr_source TEXT NOT NULL DEFAULT 'none';
+-- Audit: exact value + vintage (match date for fed, fetch date for official,
+-- quarter start for Q-TTR) behind each appearance's bonus.
+ALTER TABLE appearances ADD COLUMN IF NOT EXISTS rating_value INTEGER;
+ALTER TABLE appearances ADD COLUMN IF NOT EXISTS rating_vintage TEXT;
+
+-- Official TTR snapshots over time (append-only): every successful profile
+-- fetch records one row, so scoring can use the snapshot nearest the match
+-- date instead of today's value.
+CREATE TABLE IF NOT EXISTS ttr_history (
+  person_id TEXT NOT NULL,
+  fetched_at BIGINT NOT NULL,
+  ttr INTEGER,
+  PRIMARY KEY (person_id, fetched_at)
+);
+
+-- Quarterly Q-TTR snapshots over time: valid_from is the quarter cutoff
+-- starting validity (Feb/May/Aug/Dec 12th). Scoring uses the row with the
+-- latest valid_from at or before the match date.
+CREATE TABLE IF NOT EXISTS qttr_history (
+  person_id TEXT NOT NULL,
+  valid_from TEXT NOT NULL,
+  qttr INTEGER,
+  updated_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (person_id, valid_from)
+);
+
+-- One-time seed: carry already-stored latest official values into history.
+INSERT INTO ttr_history (person_id, fetched_at, ttr)
+SELECT person_id, updated_at, (profile_json->>'ttr')::int FROM ttr
+WHERE (profile_json->>'ttr') IS NOT NULL
+ON CONFLICT DO NOTHING;
 
 -- Generic key/value store (k/v naming avoids Postgres keyword friction).
 CREATE TABLE IF NOT EXISTS meta (

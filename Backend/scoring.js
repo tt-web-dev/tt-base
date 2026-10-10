@@ -253,25 +253,37 @@ function getScore(match, player, side) {
 }
 
 // Rating resolution for the TTR-specific bonuses (team decision):
-// stored official TTR (if <= 60 days old) -> match-time fed_rank ->
-// stored Q-TTR -> none. fed_rank is match-contemporaneous so it always wins
-// over an older official value only when the official value is outside its
-// 60-day grace; a fresh Q-TTR beats an ancient official value implicitly
-// because the official branch already expired by then.
-const OFFICIAL_TTR_GRACE_MS = 60 * 24 * 3600 * 1000;
+// point-in-time per match date — match-contemporaneous fed_rank first, then
+// the stored official snapshot nearest the match date (symmetric ±45 days),
+// then the Q-TTR valid at the match date (history, current stored as
+// fallback), else none. Display chains (current TTR/Q-TTR) are separate.
+const OFFICIAL_TTR_TOLERANCE_MS = 45 * 24 * 3600 * 1000;
 
-function pickRating({ official, officialAt, fedRank, qttr, nowMs = Date.now() }) {
-  const fed = (fedRank === null || fedRank === undefined || Number.isNaN(Number(fedRank)))
-    ? null
-    : Number(fedRank);
-  const q = (qttr === null || qttr === undefined || Number.isNaN(Number(qttr))) ? null : Number(qttr);
-  const o = (official === null || official === undefined || Number.isNaN(Number(official))) ? null : Number(official);
-  if (o !== null && Number(officialAt || 0) > nowMs - OFFICIAL_TTR_GRACE_MS) {
-    return { value: o, source: 'ttr' };
-  }
-  if (fed !== null) return { value: fed, source: 'fed' };
-  if (q !== null) return { value: q, source: 'qttr' };
-  return { value: null, source: 'none' };
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
 }
 
-module.exports = { Punkte, getDScore, getEScore, getScore, pickRating, OFFICIAL_TTR_GRACE_MS };
+function isoDay(ms) {
+  const t = Number(ms);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+function pickRating({ fedRank, matchDate, official, officialAt, qttr, qttrVintage, nowMs = Date.now() }) {
+  const fed = numOrNull(fedRank);
+  const day = String(matchDate || '').slice(0, 10) || null;
+  if (fed !== null) return { value: fed, source: 'fed', vintage: day };
+  const o = numOrNull(official);
+  const tol = OFFICIAL_TTR_TOLERANCE_MS;
+  const ref = day ? Date.parse(day + 'T12:00:00Z') : nowMs;
+  if (o !== null && Number.isFinite(Number(officialAt)) && Math.abs(Number(officialAt) - ref) <= tol) {
+    return { value: o, source: 'ttr', vintage: isoDay(officialAt) };
+  }
+  const q = numOrNull(qttr);
+  if (q !== null) return { value: q, source: 'qttr', vintage: qttrVintage || null };
+  return { value: null, source: 'none', vintage: null };
+}
+
+module.exports = { Punkte, getDScore, getEScore, getScore, pickRating, OFFICIAL_TTR_TOLERANCE_MS };

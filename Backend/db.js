@@ -257,7 +257,9 @@ function appearanceRow(a) {
     team_name: a.team_name || '', opponent_name: a.opponent_name || '',
     opponent_club: a.opponent_club != null ? String(a.opponent_club) : null,
     date: a.date || null, season: a.season || '', competition: a.competition || 'league',
-    ttr_source: source
+    ttr_source: source,
+    rating_value: a.rating_value ?? null,
+    rating_vintage: a.rating_vintage || null
   };
 }
 
@@ -380,6 +382,105 @@ async function setTtr(personId, profile) {
   ));
 }
 
+// Append-only official snapshot (called on every successful profile fetch).
+// Scoring uses the snapshot nearest the match date, not today's value.
+async function recordTtrSnapshot(personId, ttr) {
+  const sb = getClient();
+  if (!sb || ttr == null) return;
+  await write('upsert', 'ttr_history', sb.from('ttr_history').upsert(
+    { person_id: String(personId), fetched_at: now(), ttr: Math.round(ttr) },
+    { onConflict: 'person_id,fetched_at' }
+  ));
+}
+
+// Batch: nearest official snapshot per person within ±tolerance of dateStr
+// ('YYYY-MM-DD'). Returns map person_id -> { ttr, fetchedAt }.
+async function getTtrHistoryNear(personIds, dateStr, toleranceMs = 45 * 24 * 3600 * 1000) {
+  const sb = getClient();
+  const out = {};
+  if (!sb) return out;
+  const ref = Date.parse(String(dateStr || '').slice(0, 10) + 'T12:00:00Z');
+  if (!Number.isFinite(ref)) return out;
+  const ids = [...new Set((personIds || []).map(String))].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const { data } = await sb.from('ttr_history').select('person_id, fetched_at, ttr').in('person_id', chunk).limit(5000);
+    const best = {};
+    for (const row of data || []) {
+      if (row.ttr == null) continue;
+      const dist = Math.abs(Number(row.fetched_at) - ref);
+      if (dist <= toleranceMs && (!best[row.person_id] || dist < best[row.person_id].dist)) {
+        best[row.person_id] = { dist, ttr: row.ttr, fetchedAt: Number(row.fetched_at) };
+      }
+    }
+    for (const [pid, b] of Object.entries(best)) {
+      if (!out[pid] || b.dist < out[pid].dist) out[pid] = { ttr: b.ttr, fetchedAt: b.fetchedAt };
+    }
+  }
+  return out;
+}
+
+// Validity-start (quarter cutoff date 'YYYY-MM-DD') in effect at nowMs.
+function qttrValidFrom(nowMs = Date.now()) {
+  return new Date(qttrCutoffMs(nowMs)).toISOString().slice(0, 10);
+}
+
+// Record a Q-TTR snapshot for the currently valid quarter (called on every
+// successful Q-TTR fetch: lazy fills and quarterly passes build history).
+async function recordQttrSnapshot(personId, qttr, nowMs = Date.now()) {
+  const sb = getClient();
+  if (!sb || qttr == null) return;
+  await write('upsert', 'qttr_history', sb.from('qttr_history').upsert(
+    { person_id: String(personId), valid_from: qttrValidFrom(nowMs), qttr: Math.round(qttr), updated_at: now() },
+    { onConflict: 'person_id,valid_from' }
+  ));
+}
+
+// One-time seed: carry already-stored latest Q-TTR values into history,
+// stamped with the cutoff in effect when each was stored. Idempotent.
+async function seedQttrHistory() {
+  const sb = getClient();
+  if (!sb) return { seeded: 0 };
+  const { data } = await sb.from('qttr').select('person_id, qttr, updated_at').limit(20000);
+  let seeded = 0;
+  const rows = (data || []).filter(r => r.qttr != null);
+  for (let i = 0; i < rows.length; i += 200) {
+    const chunk = rows.slice(i, i + 200).map(r => ({
+      person_id: r.person_id,
+      valid_from: qttrValidFrom(Number(r.updated_at) || Date.now()),
+      qttr: r.qttr,
+      updated_at: Number(r.updated_at) || now()
+    }));
+    const res = await write('upsert', 'qttr_history', sb.from('qttr_history').upsert(chunk, { onConflict: 'person_id,valid_from' }));
+    if (res.ok) seeded += chunk.length;
+  }
+  return { seeded };
+}
+// Batch: Q-TTR valid at dateStr per person (latest valid_from <= date).
+// Returns map person_id -> { qttr, vintage } (vintage = valid_from).
+async function getQttrHistoryAt(personIds, dateStr) {
+  const sb = getClient();
+  const out = {};
+  if (!sb) return out;
+  const day = String(dateStr || '').slice(0, 10);
+  if (!day) return out;
+  const ids = [...new Set((personIds || []).map(String))].filter(Boolean);
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    const { data } = await sb.from('qttr_history')
+      .select('person_id, valid_from, qttr')
+      .in('person_id', chunk).lte('valid_from', day)
+      .order('valid_from', { ascending: false }).limit(5000);
+    const seen = new Set();
+    for (const row of data || []) {
+      if (seen.has(row.person_id) || row.qttr == null) continue;
+      seen.add(row.person_id);
+      out[row.person_id] = { qttr: row.qttr, vintage: row.valid_from };
+    }
+  }
+  return out;
+}
+
 // Quarterly TTR fallback (public, no login). Returns { qttr, updatedAt } or null.
 async function getQttr(personId) {
   const sb = getClient();
@@ -392,10 +493,14 @@ async function getQttr(personId) {
 async function setQttr(personId, qttr) {
   const sb = getClient();
   if (!sb || qttr == null) return;
+  const value = Math.round(qttr);
   await write('upsert', 'qttr', sb.from('qttr').upsert(
-    { person_id: String(personId), qttr: Math.round(qttr), updated_at: now() },
+    { person_id: String(personId), qttr: value, updated_at: now() },
     { onConflict: 'person_id' }
   ));
+  // Every stored value also snapshots its quarter, so history accumulates
+  // through lazy fills and quarterly passes alike.
+  await recordQttrSnapshot(personId, value).catch(() => {});
 }
 
 // Batch maps person_id -> { qttr, updatedAt } (one round trip per 100 ids).
@@ -549,6 +654,12 @@ module.exports = {
   setQttr,
   getQttrs,
   getTtrs,
+  qttrValidFrom,
+  recordQttrSnapshot,
+  getQttrHistoryAt,
+  recordTtrSnapshot,
+  getTtrHistoryNear,
+  seedQttrHistory,
   getStaleQttrPersonIds,
   getExistingRawMeetingIds,
   getMeetingsWithRaw,

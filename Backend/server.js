@@ -305,7 +305,7 @@ async function getMeetingInfo(data) {
   //raw fed_rank on any error.
   let match = data.match;
   try {
-    const filled = await resolveMatchRatings(data.match).catch(() => null);
+    const filled = await resolveMatchRatings(data.match, data.start_date).catch(() => null);
     if (filled && filled.match) match = filled.match;
   } catch { /* fall back to raw fed_rank */ }
   const matchInfo = getMatchInfo(match, data.team_home_club_nr, data.team_guest_club_nr)

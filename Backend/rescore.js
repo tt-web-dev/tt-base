@@ -60,7 +60,7 @@ async function main() {
     for (const m of rows) {
       let raw = m.raw;
       if (!raw || !Array.isArray(raw.match)) { meetingsSkipped++; continue; }
-      const { match: filledMatch, sources } = await resolveMatchRatings(raw.match).catch(() => ({ match: raw.match, sources: {} }));
+      const { match: filledMatch, sources } = await resolveMatchRatings(raw.match, raw.start_date).catch(() => ({ match: raw.match, sources: {} }));
       const filledRaw = { ...raw, match: filledMatch };
       const persons = distinctPersons(filledMatch);
       if (!persons.length) { meetingsSkipped++; continue; }
@@ -73,6 +73,7 @@ async function main() {
         // Preserve the meeting's season/competition as warm.js does (not pm.season).
         const season = m.season || pm.season || '';
         const competition = m.competition || 'league';
+        const src = sources[pid] || {};
         batch.push({
           person_id: pid, meeting_id: String(m.meeting_id), side: pm.side,
           player_score: pm.playerScore, wins: pm.wins, losses: pm.losses,
@@ -83,7 +84,9 @@ async function main() {
           team_name: pm.teamName, opponent_name: pm.opponentName,
           opponent_club: pm.opponentClubId ? String(pm.opponentClubId) : null,
           date: pm.date, season, competition,
-          ttr_source: sources[pid] || 'none'
+          ttr_source: src.source || 'none',
+          rating_value: src.value ?? null,
+          rating_vintage: src.vintage || null
         });
         appearancesWritten++;
         if (prev !== pm.playerScore) appearancesChanged++;
