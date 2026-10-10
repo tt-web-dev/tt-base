@@ -810,9 +810,12 @@ async function resolveMatchRatings(match, matchDate) {
     const t = tHist[pid];
     const qh = qHist[pid];
     const qc = qCur[pid];
-    // History vintage first; current stored Q-TTR only as flagged fallback.
-    let q = qh || null, qVintage = qh ? qh.vintage : null;
-    if (!q && qc && qc.qttr != null) {
+    // History vintage first (qh is an OBJECT — extract its number; passing
+    // the object itself yields NaN and silently kills the branch); current
+    // stored Q-TTR only as flagged fallback.
+    let q = (qh && qh.qttr != null) ? qh.qttr : null;
+    let qVintage = (qh && qh.qttr != null) ? qh.vintage : null;
+    if (q == null && qc && qc.qttr != null) {
       const ts = Number(qc.updatedAt);
       q = qc.qttr;
       qVintage = Number.isFinite(ts) ? new Date(ts).toISOString().slice(0, 10) : null;
