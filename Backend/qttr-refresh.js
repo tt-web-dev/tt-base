@@ -37,17 +37,23 @@ async function main() {
     console.log('[qttr] history seed skipped:', e.message);
   }
   let ok = 0, failed = 0, limited = false;
+  const reasons = {};
   for (const pid of stale) {
     await sleep(paceMs);
     try {
       const r = await fetchQttr(pid);
       if (r && r.qttr != null) ok++;
       else if (r && r.rateLimited) { limited = true; break; }
-      else failed++;
-    } catch { failed++; }
+      else {
+        failed++;
+        const reason = (r && r.reason) || 'unknown';
+        reasons[reason] = (reasons[reason] || 0) + 1;
+      }
+    } catch { failed++; reasons['exception'] = (reasons['exception'] || 0) + 1; }
   }
   const s = await db.stats().catch(() => ({}));
-  console.log(`[qttr] done. stored: ${ok}, failed: ${failed}${limited ? ' (rate-limited, stopped early)' : ''}. qttr rows: ${s.qttrRows ?? '?'}.`);
+  const reasonStr = Object.entries(reasons).map(([k, v]) => `${k}: ${v}`).join(', ');
+  console.log(`[qttr] done. stored: ${ok}, failed: ${failed}${failed ? ` (${reasonStr})` : ''}${limited ? ' (rate-limited, stopped early)' : ''}. qttr rows: ${s.qttrRows ?? '?'}.`);
 }
 
 main().catch(e => { console.error('[qttr] fatal:', e.message); process.exit(1); });

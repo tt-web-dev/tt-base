@@ -742,7 +742,15 @@ async function fetchQttr(nuid) {
       const stored = db.available() ? await db.getQttr(nuid) : null;
       if (stored) return { qttr: stored.qttr, fromCache: true, stale: true };
     } catch { /* ignore */ }
-    return { qttr: null, rateLimited: !!r.rateLimited };
+    // Classify so batch runs can report WHY players stay unknown:
+    // unpublished Q-TTR (new players), myTT backend errors on the profile,
+    // throttling, or transport failures. No secrets or bodies in reasons.
+    let reason;
+    if (r.rateLimited) reason = 'rate-limited';
+    else if (r.ok && r.body && r.body.player && r.body.player.qttr == null) reason = 'no-qttr-published';
+    else if (r.body && r.body.error) reason = `backend-error:${String(r.body.error).slice(0, 60)}`;
+    else reason = r.reason || 'fetch-failed';
+    return { qttr: null, rateLimited: !!r.rateLimited, reason };
   }
   writeCache(key, { qttr });
   if (db.available()) {
