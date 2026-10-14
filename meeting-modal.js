@@ -189,10 +189,11 @@ function formatDay(datestring) {
 }
 
 // 'YYYY-MM-DDTHH:mm' -> 'HH:MM' ('' when no time known)
+// myTT API times are UTC wall time, venue time is +2h - same shift as completed matches.
 function formatTime(datestring) {
-    const m = String(datestring || '').match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
-    if (!m) return ''
-    return `${m[4]}:${m[5]}`
+    const d = shiftApiTime2h(datestring)
+    if (!d) return ''
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 }
 
 //myTT API times are UTC wall time, venue time is +2h - shift literally,

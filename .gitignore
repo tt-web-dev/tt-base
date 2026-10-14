@@ -149,3 +149,9 @@ vite.config.ts.timestamp-*
 
 # myTT session token (if one ever lands outside Backend/)
 sb-10-auth-token
+
+#AGENTS.md file
+AGENTS.md
+
+#own ideas
+ideas.txt
