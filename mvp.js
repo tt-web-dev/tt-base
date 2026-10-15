@@ -37,13 +37,8 @@ function urlWeek() {
     } catch { return null; }
 }
 
-function setUrlWeek(ws) {
-    try {
-        const url = new URL(window.location);
-        url.searchParams.set('mvp-week', ws);
-        history.replaceState(null, '', url);
-    } catch { /* ignore */ }
-}
+// Read-only URL (same philosophy as the calendar's ?date=): deep links with
+// ?mvp-week= open that week on load, but week navigation never writes back.
 
 const state = {
     season: '',
@@ -279,7 +274,6 @@ function stepWeek(delta) {
     if (!next) return;
     if (delta > 0 && next > state.currentMonday) return; // no future weeks
     state.mainWeek = next;
-    setUrlWeek(next);
     loadMain();
 }
 
