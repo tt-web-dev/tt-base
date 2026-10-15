@@ -42,8 +42,8 @@ function urlWeek() {
 
 const state = {
     season: '',
-    pinnedWeek: '',
     mainWeek: '',
+    advWeek: '', // independent from mainWeek; in-memory only, never in the URL
     currentMonday: mondayOf(cestToday()),
     meta: null, // week-scoped { leagues, clubs, pairs, leagueMeetings, clubMeetings }
     advClub: DEFAULT_CLUB,
@@ -188,9 +188,9 @@ async function initMvp() {
     try {
         const meta = await apiJson('/mvp/meta');
         state.season = meta.season || '';
-        state.pinnedWeek = meta.defaultWeekStart;
         state.mainWeek = urlWeek() || meta.defaultWeekStart;
-        await loadAdvMeta();
+        state.advWeek = meta.defaultWeekStart;
+        state.meta = await loadAdvMeta();
         validateAdvFilters(true);
         loadHighscore();
     } catch (e) {
@@ -281,9 +281,53 @@ function stepWeek(delta) {
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mvp-prev')?.addEventListener('click', () => stepWeek(-7));
     document.getElementById('mvp-next')?.addEventListener('click', () => stepWeek(7));
+    document.getElementById('mvp-adv-prev')?.addEventListener('click', () => stepAdvWeek(-7));
+    document.getElementById('mvp-adv-next')?.addEventListener('click', () => stepAdvWeek(7));
 });
 
-// ---------- advanced MVP (pinned week + filters) ----------
+// ---------- advanced MVP (week navigation + filters) ----------
+function paintAdvWeekLabel(data) {
+    const label = document.getElementById('mvp-adv-label');
+    if (!label) return;
+    label.replaceChildren();
+    if (!data) {
+        label.textContent = 'Advanced MVP';
+        return;
+    }
+    label.textContent = `Woche ${data.isoWeek} · ${data.year}`;
+    if (data.provisional) {
+        const sub = document.createElement('span');
+        sub.className = 'mvp-prov';
+        sub.textContent = 'provisorisch';
+        label.appendChild(sub);
+    }
+    const next = document.getElementById('mvp-adv-next');
+    if (next) next.disabled = state.advWeek >= state.currentMonday;
+}
+
+async function stepAdvWeek(delta) {
+    const next = addDays(state.advWeek, delta);
+    if (!next) return;
+    if (delta > 0 && next > state.currentMonday) return; // no future weeks
+    state.advWeek = next;
+    setAdvHint('');
+    const nextBtn = document.getElementById('mvp-adv-next');
+    if (nextBtn) nextBtn.disabled = next >= state.currentMonday;
+    const mid = ++advMetaReq;
+    let fresh;
+    try {
+        fresh = await loadAdvMeta();
+    } catch (e) {
+        if (mid !== advMetaReq) return; // superseded by newer nav
+        renderAdvError(e);
+        paintAdvWeekLabel(null);
+        return;
+    }
+    if (mid !== advMetaReq) return; // superseded by newer nav
+    state.meta = fresh;
+    validateAdvFilters(true);
+    loadAdv();
+}
 function overlap(clubId, groupId) {
     const pairs = state.meta?.pairs || [];
     if (!clubId || !groupId) return true; // 'Alle' is compatible with everything
@@ -291,11 +335,14 @@ function overlap(clubId, groupId) {
 }
 
 async function loadAdvMeta() {
-    state.meta = await apiJson(`/mvp/meta?weekStart=${encodeURIComponent(state.pinnedWeek)}`);
+    return apiJson(`/mvp/meta?weekStart=${encodeURIComponent(state.advWeek)}`);
 }
 
-// Monday rollover / first load: keep club, reset league on mismatch; reset
-// both to default when the club has no games at all in the new week.
+let advMetaReq = 0;
+
+// Week change (arrows) / Monday rollover / first load: keep club, reset
+// league on mismatch; reset both to default when the club has no games at
+// all in the new week.
 function validateAdvFilters(silent) {
     const clubs = state.meta?.clubs || [];
     const hasClub = !state.advClub || clubs.some(c => String(c.clubId) === String(state.advClub));
@@ -363,17 +410,18 @@ let advReq = 0;
 
 async function loadAdv() {
     const el = document.getElementById('mvp-adv-card');
-    if (!el || !state.pinnedWeek) return;
+    if (!el || !state.advWeek) return;
     const id = ++advReq;
     loadingInto(el, 'Lade Advanced MVP …');
     paintAdvFilters();
-    const q = `/mvp?weekStart=${encodeURIComponent(state.pinnedWeek)}`
+    const q = `/mvp?weekStart=${encodeURIComponent(state.advWeek)}`
         + (state.advClub ? `&clubId=${encodeURIComponent(state.advClub)}` : '')
         + (state.advGroup ? `&groupId=${encodeURIComponent(state.advGroup)}` : '');
     try {
         const data = await apiJson(q);
         if (id !== advReq) return;
         el.replaceChildren();
+        paintAdvWeekLabel(data);
         if (data.winner) {
             el.appendChild(playerCard(data.winner, false, data.winner.playerScore, scoreClass(data.winner.playerScore)));
         } else {
@@ -397,6 +445,7 @@ async function loadAdv() {
     } catch (e) {
         if (id !== advReq) return;
         el.replaceChildren(statusEl(errKind(e) === 'nodata' ? 'Keine Daten' : `Error: ${e.message}`));
+        paintAdvWeekLabel(null);
         paintAdvFilters();
     }
 }
