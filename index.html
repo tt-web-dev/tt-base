@@ -6,12 +6,14 @@
     <title>TT-Kickbase</title>
     <link rel="stylesheet" href="base.css">
     <link rel="stylesheet" href="home.css">
+    <link rel="stylesheet" href="mvp.css">
     <link rel="stylesheet" href="player-view.css">
     <link rel="stylesheet" href="scouting.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.0/css/all.min.css" integrity="sha512-ApSLB1Pd3/bZN8fWB/RG9YhN/7bd9Hkf3AGaE2mPfebjrxagjuBtx2GcgdqIlJkUzwylBo61r9Xa9NmgBI0swA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="config.js"></script>
     <script src="header.js" defer></script>
     <script src="calendar.js" type="module"></script>
+    <script src="mvp.js" type="module"></script>
     <script src="modal.js" type="module"></script>
     <script src="meeting-modal.js" type="module"></script>
     <script src="player-view.js" type="module"></script>
@@ -69,6 +71,27 @@
 
         </div>
     </section>
+
+    <section>
+        <div class="head-label">MVP</div>
+        <div class="mvp-weeknav">
+            <button id="mvp-prev" aria-label="Vorherige Woche"><i class="fa-solid fa-angle-left" style="color: rgb(255, 255, 255);"></i></button>
+            <span id="mvp-weeklabel" class="mvp-weeklabel">MVP</span>
+            <button id="mvp-next" aria-label="Nächste Woche"><i class="fa-solid fa-angle-right" style="color: rgb(255, 255, 255);"></i></button>
+        </div>
+        <div id="mvp-main-card" class="mvp-card" aria-live="polite"></div>
+    </section>
+
+    <section>
+        <div class="head-label">Advanced MVP</div>
+        <div id="mvp-adv-card" class="mvp-card" aria-live="polite"></div>
+        <div id="mvp-adv-hint" class="mvp-hint" hidden></div>
+    </section>
+
+    <section>
+        <div class="head-label">Season Highscore</div>
+        <div id="mvp-high-card" class="mvp-card" aria-live="polite"></div>
+    </section>
     
     <section>
         <div class="modal" id="teamselect-modal">
@@ -98,6 +121,24 @@
             </div>
             <div class="modal-body" id="player-modal-body">
 
+            </div>
+        </div>
+        <div class="modal mvp-modal" id="mvp-league-modal">
+            <div class="modal-header">
+                <div class="modal-title">LIGA WÄHLEN</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="mvp-select-list" id="mvp-league-list"></div>
+            </div>
+        </div>
+        <div class="modal mvp-modal" id="mvp-club-modal">
+            <div class="modal-header">
+                <div class="modal-title">CLUB WÄHLEN</div>
+                <button data-modal-close-btn id="close-modal-btn"><i class="fa-solid fa-square-xmark fa-2xl" style="color: #ff4600;"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="mvp-select-list" id="mvp-club-list"></div>
             </div>
         </div>
         <div id="modal-overlay">

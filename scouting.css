@@ -1,12 +1,14 @@
 /* Scout List — under calendar on index.html */
 .scout-list-container {
-    display: grid;
+    display: flex;
     gap: 0.45em;
     max-height: calc(3 * 3.9em + 2 * 0.45em);
     overflow-y: auto;
     scrollbar-width: thin;
     scrollbar-color: var(--Dark-Grey) transparent;
     padding-right: 0.15em;
+    width: 100%;
+    justify-content: center;
 }
 .scout-row {
     display: grid;
@@ -21,7 +23,8 @@
     text-align: left;
     color: inherit;
     font: inherit;
-    width: 100%;
+    width: 92%;
+    justify-content: center;
 }
 .scout-row:hover { filter: brightness(1.12); }
 .scout-row img {

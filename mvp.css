@@ -1,0 +1,293 @@
+/* MVP sections on home: mock layout in site style (base.css vars).
+   Section headers reuse the global .head-label. Cards copy .spieltag-card,
+   inner rows copy button.liga-match, names copy meeting-modal typography. */
+
+.mvp-weeknav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: min(1000px, 100%);
+    margin: 0 auto .75rem auto;
+    padding: 0 .25rem;
+}
+
+.mvp-weeknav button {
+    background: transparent;
+    border: none;
+    color: var(--White);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: .5rem 1rem;
+    border-radius: .5rem;
+}
+
+.mvp-weeknav button:hover:not(:disabled) {
+    background-color: var(--Light-Black);
+}
+
+.mvp-weeknav button:disabled {
+    opacity: .25;
+    cursor: default;
+}
+
+.mvp-weeklabel {
+    font-family: KB_Pitch-Still;
+    letter-spacing: .04em;
+    line-height: 1.3;
+    text-align: center;
+}
+
+.mvp-prov {
+    display: block;
+    font-family: KB_Volksans-Regular;
+    font-size: .75rem;
+    letter-spacing: .06em;
+    color: var(--Grey);
+}
+
+.mvp-card {
+    width: min(1000px, 100%);
+    margin: 0 auto 1rem auto;
+    background-color: #1b1b1e;
+    border-radius: 1.25rem;
+    padding: 1rem .9rem;
+    display: flex;
+    flex-direction: column;
+    gap: .8rem;
+}
+
+.mvp-winner {
+    display: flex;
+    align-items: stretch;
+    gap: .8rem;
+}
+
+.mvp-logo {
+    min-width: 3.2rem;
+    background-color: var(--Light-Black);
+    border-radius: .6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: .4rem;
+}
+
+.mvp-logo img {
+    width: 2.4rem;
+    height: 2.4rem;
+    object-fit: contain;
+}
+
+.mvp-player {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+    background-color: var(--Light-Black);
+    border: 1px solid transparent;
+    border-radius: .9rem;
+    padding: .8rem .9rem;
+    color: var(--White);
+    font-family: KB_Volksans-Regular;
+    text-align: left;
+    min-width: 0;
+}
+
+button.mvp-player {
+    cursor: pointer;
+}
+
+button.mvp-player:hover {
+    border-color: var(--Grey);
+}
+
+.mvp-names {
+    display: grid;
+    min-width: 0;
+}
+
+.mvp-names .first {
+    font-size: .8em;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.mvp-names .last {
+    font-family: KB_Pitch-Run;
+    font-size: 1em;
+    text-transform: uppercase;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.mvp-score {
+    font-family: KB_Pitch-Still;
+    font-size: 1.75em;
+    white-space: nowrap;
+}
+
+/* score tiers: same rules as meeting-modal.js / player-view.js
+   (.player-score.one..six in meeting-modal.css), scoped to MVP cards */
+.mvp-score.one {
+    color: var(--bar1);
+}
+
+.mvp-score.two {
+    color: var(--bar2);
+}
+
+.mvp-score.three {
+    color: var(--bar3);
+}
+
+.mvp-score.four {
+    color: var(--bar4);
+}
+
+.mvp-score.five {
+    color: var(--bar5);
+}
+
+.mvp-score.six {
+    color: var(--Light-Grey);
+}
+
+.mvp-filters {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: .8rem;
+}
+
+.mvp-filter {
+    background-color: var(--Light-Black);
+    border: 1px solid transparent;
+    border-radius: .9rem;
+    padding: .8rem .9rem;
+    color: var(--White);
+    font-family: KB_Volksans-Regular;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    cursor: pointer;
+    min-height: 4.5rem;
+    min-width: 0;
+}
+
+.mvp-filter:hover {
+    border-color: var(--Grey);
+}
+
+.mvp-filter img {
+    width: 2.6rem;
+    height: 2.6rem;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.mvp-filter span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+}
+
+.mvp-hint {
+    width: min(1000px, 100%);
+    margin: -.5rem auto 1rem auto;
+    text-align: center;
+    color: var(--Grey);
+    font-size: .8rem;
+    letter-spacing: .04em;
+}
+
+.mvp-status {
+    text-align: center;
+    color: var(--Light-Grey);
+    background-color: var(--Light-Black);
+    border-radius: .9rem;
+    padding: 1.5rem 1rem;
+    font-family: KB_Volksans-Regular;
+    letter-spacing: .02em;
+    line-height: 1.4;
+}
+
+/* filter bottom sheets: same pattern as liga-modal (modal.js opens/closes
+   them via data-modal-target with zero extra wiring) */
+.mvp-modal {
+    top: auto;
+    bottom: 0;
+    left: 50%;
+    transform: translate(-50%, 100%);
+    width: min(700px, 100%);
+    max-height: 75%;
+    border-radius: 1rem 1rem 0 0;
+}
+
+.mvp-modal.active {
+    transform: translate(-50%, 0);
+}
+
+.mvp-select-list {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+}
+
+.mvp-select-row {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+    width: 100%;
+    padding: .8rem .75rem;
+    background: transparent;
+    border: none;
+    border-radius: .6rem;
+    color: var(--White);
+    font-family: KB_Volksans-Regular;
+    font-size: 1rem;
+    letter-spacing: .02em;
+    line-height: 1.4;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mvp-select-row:hover {
+    background-color: var(--Light-Black);
+}
+
+.mvp-select-row.active {
+    background-color: var(--Light-Black);
+}
+
+/* greyed but clickable: incompatible with the other filter (aria-disabled
+   keeps focus/click for the auto-reset, unlike the disabled attribute) */
+.mvp-select-row.is-incompatible {
+    opacity: .45;
+}
+
+.mvp-select-row img {
+    width: 2rem;
+    height: 2rem;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+.mvp-select-row span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mvp-select-row .mvp-count {
+    margin-left: auto;
+    color: var(--Grey);
+    font-size: .85rem;
+    flex-shrink: 0;
+}

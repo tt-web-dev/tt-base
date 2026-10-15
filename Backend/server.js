@@ -1,6 +1,7 @@
 
 //----------team declaration---------
 //bei neuem Team auch Logos der Gegner hinzufügen!
+//Gegner Club-Namen auch bei club-names.js eintragen
 //set the teams shown by default to active = true
 var teams = [
   {
@@ -143,6 +144,8 @@ const TSV_clubId = "22107"
 const { Punkte, getDScore, getEScore, getScore } = require('./scoring');
 const path = require('path');
 const db = require('./db');
+const mvp = require('./mvp');
+const { clubNameFor } = require('./club-names');
 
 // Freshness windows (team decision, CEST = fixed UTC+2):
 // league schedules revalidate after 24h, tables after 15 min (memory only).
@@ -865,6 +868,224 @@ app.get('/meeting/:id', async (req, res) => {
 app.get('/punkte', (req, res) => {
   res.send(Punkte)
 })
+
+// ---------- weekly MVP (badge only, no scoring impact) ----------
+// All reads are Supabase-only (zero myTT calls): winner snapshots from
+// weekly_mvps, everything else recomputed live from appearances. Never 429:
+// db down -> honest 503 (frontend shows "Keine Daten"), empty week -> 200
+// with winner:null (frontend shows "Keine Spiele in dieser Woche").
+function mvpNotWarmed(res) {
+  return res.status(503).send({ notWarmed: true, error: 'Career store unavailable.' });
+}
+
+function mvpDefaultSeason() {
+  const first = filterActive(teams)[0] || teams[0];
+  if (!first || !first.season) return '';
+  return db.normalizeSeason(first.season).season;
+}
+
+async function mvpLastWarmAt() {
+  try {
+    if (!db.available()) return null;
+    const raw = await db.metaGet('warm-last-run');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const t = Date.parse(parsed && parsed.at);
+    return Number.isFinite(t) ? t : null;
+  } catch { return null; }
+}
+
+function mvpWeekPayload(weekStart) {
+  const { week, year } = mvp.isoWeekOf(weekStart);
+  return { weekStart, isoWeek: week, year };
+}
+
+// Live rank of one CEST week with optional club/league filters. Returns
+// { winner, top, total, provisional } with enriched rows.
+async function mvpRankWeek(weekStart, { season, competition, clubId, groupId }) {
+  const padFrom = mvp.addDays(weekStart, -1);
+  const padTo = mvp.addDays(weekStart, 8);
+  const rows = await db.getAppearancesInRange(padFrom, padTo, { season, competition });
+  let cand = rows.filter(r => mvp.inWeek(r, weekStart));
+  if (clubId) cand = cand.filter(r => String(r.club_id) === String(clubId));
+  const groups = await db.getMeetingGroups(cand.map(r => r.meeting_id)).catch(() => ({}));
+  if (groupId) cand = cand.filter(r => String((groups[String(r.meeting_id)] || {}).group_id) === String(groupId));
+  if (!cand.length) return { winner: null, top: [], total: 0, provisional: Date.now() < (mvp.monday00CEST(mvp.addDays(weekStart, 7)) || 0) };
+  const ranked = mvp.rankRows(cand);
+  const needGroups = await db.getMeetingGroups(ranked.slice(0, 6).map(r => r.meeting_id)).catch(() => groups);
+  const merged = { ...groups, ...needGroups };
+  const provisional = Date.now() < (mvp.monday00CEST(mvp.addDays(weekStart, 7)) || 0)
+    || cand.some(r => !((merged[String(r.meeting_id)] || {}).frozen));
+  return {
+    winner: mvp.enrichRow(ranked[0], merged),
+    top: ranked.slice(0, 6).map(r => mvp.enrichRow(r, merged)),
+    total: cand.length,
+    provisional
+  };
+}
+
+// GET /mvp?weekStart=YYYY-MM-DD&clubId=&groupId=&season=&competition=league
+// weekStart accepts any date inside the week (normalized to Monday) or is
+// omitted for the gated default (last warmed Mon-Sun week).
+app.get('/mvp', async (req, res) => {
+  try {
+    if (!db.available()) return mvpNotWarmed(res);
+    const season = req.query.season ? String(req.query.season) : mvpDefaultSeason();
+    const competition = req.query.competition ? String(req.query.competition) : 'league';
+    const clubId = req.query.clubId ? String(req.query.clubId) : '';
+    const groupId = req.query.groupId ? String(req.query.groupId) : '';
+    let weekStart = '';
+    if (req.query.weekStart) {
+      const day = String(req.query.weekStart).slice(0, 10);
+      weekStart = mvp.mondayOf(day);
+      if (!weekStart) return res.status(400).send({ error: 'Invalid weekStart (expected YYYY-MM-DD).' });
+    } else {
+      const gate = mvp.defaultWeekStart(await mvpLastWarmAt());
+      weekStart = gate.weekStart;
+    }
+    const unfiltered = !clubId && !groupId && competition === 'league';
+    if (unfiltered) {
+      try {
+        const snap = await db.getWeeklyMvp(weekStart);
+        if (snap && snap.season === season && snap.score_version === mvp.scoreVersion()) {
+          const groups = await db.getMeetingGroups([snap.meeting_id]).catch(() => ({}));
+          const winner = mvp.enrichRow({
+            person_id: snap.person_id, meeting_id: snap.meeting_id,
+            first_name: snap.first_name, last_name: snap.last_name,
+            club_id: snap.club_id, team_name: snap.team_name,
+            opponent_name: '', date: null, season: snap.season,
+            player_score: snap.player_score, wins: snap.wins, losses: snap.losses
+          }, groups);
+          // Winner date for the card comes from the stored meeting when known.
+          const g = groups[String(snap.meeting_id)];
+          if (winner && g && g.date) winner.date = g.date;
+          const prov = Date.now() < (mvp.monday00CEST(mvp.addDays(weekStart, 7)) || 0)
+            || !(g && g.frozen);
+          console.log(`Serving mvp ${weekStart} from snapshot.`);
+          return res.send({ ...mvpWeekPayload(weekStart), season, competition, provisional: prov, stored: true, winner, top: winner ? [winner] : [], total: winner ? 1 : 0 });
+        }
+      } catch { /* fall through to live */ }
+    }
+    const live = await mvpRankWeek(weekStart, { season, competition, clubId, groupId });
+    // Opportunistic persist of the overall winner (refresh-on-change cache).
+    if (unfiltered && live.winner) {
+      db.upsertWeeklyMvp({
+        week_start: weekStart, season,
+        competition, person_id: live.winner.personId, meeting_id: live.winner.meetingId,
+        player_score: live.winner.playerScore, wins: live.winner.wins, losses: live.winner.losses,
+        first_name: live.winner.firstName, last_name: live.winner.lastName,
+        club_id: live.winner.clubId || null, team_name: live.winner.teamName || '',
+        computed_at: Date.now(), score_version: mvp.scoreVersion()
+      }).catch(() => {});
+    }
+    console.log(`Serving mvp ${weekStart} live (filters club=${clubId || '-'} league=${groupId || '-'}).`);
+    res.send({ ...mvpWeekPayload(weekStart), season, competition, provisional: live.provisional, stored: false, winner: live.winner, top: live.top, total: live.total });
+  } catch (e) {
+    console.error('[mvp] failed:', e.message || e);
+    res.status(500).send({ error: 'MVP konnte nicht geladen werden.' });
+  }
+});
+
+// GET /mvp/meta?season=&weekStart= — filter metadata for the Advanced card:
+// week-scoped leagues/clubs/pairs (only this week) + gated default week.
+app.get('/mvp/meta', async (req, res) => {
+  try {
+    if (!db.available()) return mvpNotWarmed(res);
+    const season = req.query.season ? String(req.query.season) : mvpDefaultSeason();
+    const competition = 'league';
+    const lastWarmAt = await mvpLastWarmAt();
+    const gate = mvp.defaultWeekStart(lastWarmAt);
+    let weekStart = gate.weekStart;
+    if (req.query.weekStart) {
+      const day = String(req.query.weekStart).slice(0, 10);
+      const mon = mvp.mondayOf(day);
+      if (!mon) return res.status(400).send({ error: 'Invalid weekStart (expected YYYY-MM-DD).' });
+      weekStart = mon;
+    }
+    const padFrom = mvp.addDays(weekStart, -1);
+    const padTo = mvp.addDays(weekStart, 8);
+    const rows = await db.getAppearancesInRange(padFrom, padTo, { season, competition });
+    const cand = rows.filter(r => mvp.inWeek(r, weekStart));
+    const groups = await db.getMeetingGroups(cand.map(r => r.meeting_id)).catch(() => ({}));
+    const leagueByGroup = {};
+    const clubSeed = {};
+    const pairMeetings = {};
+    for (const r of cand) {
+      const g = groups[String(r.meeting_id)] || {};
+      if (g.group_id) {
+        if (!leagueByGroup[g.group_id]) leagueByGroup[g.group_id] = g.league_name || prettyLeagueGroup(g.group_id);
+        const pk = `${g.group_id}|${String(r.club_id)}`;
+        if (!pairMeetings[pk]) pairMeetings[pk] = new Set();
+        pairMeetings[pk].add(String(r.meeting_id));
+      }
+      const cid = r.club_id != null ? String(r.club_id) : '';
+      if (cid && !clubSeed[cid]) clubSeed[cid] = r.team_name || '';
+    }
+    const leagues = Object.entries(leagueByGroup)
+      .map(([groupId, league]) => ({ groupId, league }))
+      .sort((a, b) => String(a.league).localeCompare(String(b.league), 'de'));
+    const clubs = Object.entries(clubSeed)
+      .map(([clubId, team]) => ({ clubId, name: clubNameFor(clubId, team), team }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
+    const pairs = Object.entries(pairMeetings).map(([k, set]) => {
+      const [groupId, clubId] = k.split('|');
+      return { groupId, clubId, games: set.size };
+    });
+    // Exact distinct-meeting counts per option (pair sums would double-count
+    // meetings across clubs, so unions are computed here, not client-side).
+    const leagueMeetings = {};
+    const clubMeetings = {};
+    {
+      const byLeague = {};
+      const byClub = {};
+      for (const r of cand) {
+        const g = groups[String(r.meeting_id)] || {};
+        const mid = String(r.meeting_id);
+        if (g.group_id) {
+          if (!byLeague[g.group_id]) byLeague[g.group_id] = new Set();
+          byLeague[g.group_id].add(mid);
+        }
+        const cid = r.club_id != null ? String(r.club_id) : '';
+        if (cid) {
+          if (!byClub[cid]) byClub[cid] = new Set();
+          byClub[cid].add(mid);
+        }
+      }
+      for (const [k, set] of Object.entries(byLeague)) leagueMeetings[k] = set.size;
+      for (const [k, set] of Object.entries(byClub)) clubMeetings[k] = set.size;
+    }
+    res.send({
+      season, weekStart,
+      defaultWeekStart: gate.weekStart, warmed: gate.warmed,
+      lastWarmAt: lastWarmAt ? new Date(lastWarmAt).toISOString() : null,
+      leagues, clubs, pairs, leagueMeetings, clubMeetings
+    });
+  } catch (e) {
+    console.error('[mvp/meta] failed:', e.message || e);
+    res.status(500).send({ error: 'MVP-Filter konnten nicht geladen werden.' });
+  }
+});
+
+function prettyLeagueGroup(groupId) {
+  const t = teams.find(x => String(x.groupId) === String(groupId));
+  const slug = t && t.league_slug ? String(t.league_slug) : '';
+  return slug ? slug.replace(/_/g, ' ').replace(/\s+/g, ' ').trim() : String(groupId);
+}
+
+// GET /mvp/highscore?season= — highest single-meeting league score of the season.
+app.get('/mvp/highscore', async (req, res) => {
+  try {
+    if (!db.available()) return mvpNotWarmed(res);
+    const season = req.query.season ? String(req.query.season) : mvpDefaultSeason();
+    const best = await db.getSeasonBest(season, 'league');
+    if (!best) return res.send({ season, winner: null });
+    const groups = await db.getMeetingGroups([best.meeting_id]).catch(() => ({}));
+    res.send({ season, winner: mvp.enrichRow(best, groups) });
+  } catch (e) {
+    console.error('[mvp/highscore] failed:', e.message || e);
+    res.status(500).send({ error: 'Highscore konnte nicht geladen werden.' });
+  }
+});
 
 //send teamAuswahl[] to frontend
 app.get('/teams', (req, res) => {

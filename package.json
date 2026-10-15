@@ -10,6 +10,7 @@
     "build": "npm install --prefix Backend",
     "start": "npm start --prefix Backend",
     "warm": "npm run warm --prefix Backend",
+    "mvp": "npm run mvp --prefix Backend",
     "rescore": "npm run rescore --prefix Backend"
   }
 }

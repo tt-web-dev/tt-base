@@ -3,6 +3,7 @@
     "start": "node server.js",
     "warm": "node warm.js",
     "warm-qttr": "node qttr-refresh.js",
+    "mvp": "node mvp-refresh.js",
     "rescore": "node rescore.js"
   },
   "dependencies": {

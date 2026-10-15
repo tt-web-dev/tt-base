@@ -16,6 +16,7 @@
 // corrections, then frozen. TTR is never bulk-fetched (lazy per player view).
 
 const db = require('./db');
+const mvpLib = require('./mvp');
 const {
   myttFetchJson,
   fetchLeagueGames,
@@ -100,6 +101,7 @@ async function main() {
 
   let reqCount = 0;
   const progress = { teamsDone: 0, teamsTotal: 0, meetingsDone: 0, meetingsNew: 0, meetingsCorrected: 0, players: new Set() };
+  const touchedWeeks = new Set(); // CEST week_starts with new/corrected league appearances
 
   try {
     // 1) club teams (1 public request). guarded() already retried
@@ -202,6 +204,12 @@ async function main() {
         });
         if (stored && stored.raw) progress.meetingsCorrected++;
         else progress.meetingsNew++;
+        // Weekly MVP snapshot bookkeeping (league scope only): the touched
+        // CEST week is refreshed from the just-written appearances below.
+        if (competition === 'league') {
+          const ws = mvpLib.weekStartOf(raw.start_date || g.date);
+          if (ws) touchedWeeks.add(ws);
+        }
         // Rating fill point-in-time per match date (fed_rank -> official
         // snapshot nearest the date -> Q-TTR valid at the date) so TTR
         // bonuses compute even where myTT ships fed_rank:null. Sources and
@@ -246,6 +254,19 @@ async function main() {
         teamsDone: progress.teamsDone, teamsTotal: progress.teamsTotal,
         meetingsFetched: progress.meetingsDone, at: new Date().toISOString()
       }));
+    }
+
+    // Weekly MVP snapshots for touched league weeks (derived cache over the
+    // just-written appearances). Zero myTT calls, best-effort: a failed
+    // refresh only leaves the live fallback in place, never fails the warm.
+    try {
+      const weeks = [...touchedWeeks].sort();
+      for (const ws of weeks) {
+        await mvpLib.refreshWeek(ws, { season: target, competition: 'league' }).catch(() => null);
+      }
+      if (weeks.length) console.log(`[warm] mvp snapshots refreshed for ${weeks.length} week(s).`);
+    } catch (e) {
+      console.log('[warm] mvp refresh skipped:', e.message);
     }
 
     // Quarterly Q-TTR pass (public popup, generous budget): refresh stored

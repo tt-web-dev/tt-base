@@ -143,3 +143,28 @@ CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+
+-- Weekly MVP snapshots (derived cache over appearances, winner only).
+-- Recomputed by warm.js (touched weeks), rescore.js (dirty score_version)
+-- and mvp-refresh.js (manual/backfill). Reads are Supabase-only, zero myTT.
+-- week_start is the Monday 'YYYY-MM-DD' of the fixed-CEST (UTC+2) week.
+CREATE TABLE IF NOT EXISTS weekly_mvps (
+  week_start TEXT PRIMARY KEY,
+  season TEXT NOT NULL DEFAULT '',
+  competition TEXT NOT NULL DEFAULT 'league',
+  person_id TEXT,
+  meeting_id TEXT,
+  player_score INTEGER,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  first_name TEXT NOT NULL DEFAULT '',
+  last_name TEXT NOT NULL DEFAULT '',
+  club_id TEXT,
+  team_name TEXT NOT NULL DEFAULT '',
+  computed_at BIGINT NOT NULL DEFAULT 0,
+  score_version TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_weekly_mvps_season ON weekly_mvps (season);
+-- Weekly MVP range scans filter appearances.date; existing indexes only
+-- cover (person_id, season) + meeting_id, so week queries would full-scan.
+CREATE INDEX IF NOT EXISTS idx_appear_date ON appearances (date);

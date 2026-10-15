@@ -100,6 +100,23 @@ async function main() {
 
   console.log(`[rescore] ${dryRun ? 'would write' : 'wrote'} ${appearancesWritten} appearances from ${meetingsOk} meetings (${meetingsSkipped} skipped), ${appearancesChanged} scores changed vs before`);
 
+  if (!dryRun) {
+    // Weekly MVP snapshots with a stale score_version no longer match the
+    // current Punkte table: refresh them from the just-written appearances.
+    // Zero myTT calls. Unchanged versions are skipped (nothing to refresh).
+    const mvp = require('./mvp');
+    const current = mvp.scoreVersion();
+    const weeks = await db.getWeeklyMvpWeeks().catch(() => []);
+    const stale = weeks.filter(w => w.score_version !== current);
+    let refreshed = 0;
+    for (const w of stale) {
+      await mvp.refreshWeek(w.week_start, { season: w.season || '', competition: 'league' }).catch(() => null);
+      refreshed++;
+    }
+    if (stale.length) console.log(`[rescore] refreshed ${refreshed}/${stale.length} stale mvp snapshots (score_version ${current}).`);
+    else console.log('[rescore] mvp snapshots already current, nothing refreshed.');
+  }
+
   if (sampleId !== null) {
     try {
       const first = await db.getAppearancesPage(1, 0);

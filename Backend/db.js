@@ -625,6 +625,145 @@ async function stats() {
   return { available: true, clubs, teams, leagues, meetings, meetingsDone, appearances, players, qttrRows };
 }
 
+// ---------- weekly MVP (derived cache over appearances, winner only) ----------
+// Appearances carry full ISO timestamps ('...+00:00'), so day-granularity
+// string comparison works when every bound uses the same shape. Callers pad
+// +-1 day and bucket exactly in code (see mvp.js cestDay).
+const APPEAR_MVP_COLS = 'person_id, meeting_id, player_score, wins, losses, single_wins, single_losses, first_name, last_name, club_id, team_name, opponent_name, opponent_club, date, season, competition';
+
+async function getAppearancesInRange(fromDay, toDayExclusive, { season = '', competition = 'league' } = {}) {
+  const sb = getClient();
+  if (!sb) return [];
+  let q = sb.from('appearances').select(APPEAR_MVP_COLS)
+    .gte('date', String(fromDay)).lt('date', String(toDayExclusive))
+    .eq('competition', competition || 'league')
+    .limit(5000);
+  if (season) q = q.eq('season', String(season));
+  const { data, error } = await q;
+  if (error) {
+    console.error(`[db] select "appearances" range failed: ${error.message || error}`);
+    return [];
+  }
+  return data || [];
+}
+
+// Batch map meeting_id -> { group_id, league_name, frozen, date } plus one
+// batched leagues lookup (prefer the 'gesamt' schedule row for the name).
+async function getMeetingGroups(ids) {
+  const sb = getClient();
+  const out = {};
+  if (!sb) return out;
+  const list = [...new Set((ids || []).map(String))].filter(Boolean);
+  if (!list.length) return out;
+  const meetById = {};
+  for (let i = 0; i < list.length; i += 100) {
+    const { data } = await sb.from('meetings')
+      .select('meeting_id, group_id, frozen, date')
+      .in('meeting_id', list.slice(i, i + 100));
+    for (const row of data || []) meetById[row.meeting_id] = row;
+  }
+  const groupIds = [...new Set(Object.values(meetById).map(r => r.group_id).filter(Boolean))];
+  const leagueByGroup = {};
+  for (let i = 0; i < groupIds.length; i += 50) {
+    const { data } = await sb.from('leagues').select('group_id, filter, league_name')
+      .in('group_id', groupIds.slice(i, i + 50));
+    for (const row of data || []) {
+      if (!leagueByGroup[row.group_id] || row.filter === 'gesamt') leagueByGroup[row.group_id] = row.league_name;
+    }
+  }
+  for (const [mid, m] of Object.entries(meetById)) {
+    out[mid] = {
+      group_id: m.group_id || '',
+      league_name: (m.group_id && leagueByGroup[m.group_id]) || '',
+      frozen: !!m.frozen,
+      date: m.date || null
+    };
+  }
+  return out;
+}
+
+// Highest single-meeting score of a season (league scope) with the MVP proxy
+// tiebreak. Returns the raw appearance row or null.
+async function getSeasonBest(season, competition = 'league') {
+  const sb = getClient();
+  if (!sb) return null;
+  const { data, error } = await sb.from('appearances').select(APPEAR_MVP_COLS)
+    .eq('season', String(season)).eq('competition', competition || 'league')
+    .order('player_score', { ascending: false })
+    .order('losses', { ascending: true })
+    .order('wins', { ascending: false })
+    .order('single_wins', { ascending: false })
+    .order('person_id', { ascending: true })
+    .limit(1).maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
+async function getWeeklyMvp(weekStart) {
+  const sb = getClient();
+  if (!sb) return null;
+  const { data, error } = await sb.from('weekly_mvps').select('*')
+    .eq('week_start', String(weekStart).slice(0, 10)).maybeSingle();
+  if (error || !data || !data.person_id) return null;
+  return data;
+}
+
+async function upsertWeeklyMvp(row) {
+  const sb = getClient();
+  if (!sb) return;
+  await write('upsert', 'weekly_mvps', sb.from('weekly_mvps').upsert(
+    {
+      week_start: String(row.week_start).slice(0, 10),
+      season: row.season || '',
+      competition: row.competition || 'league',
+      person_id: row.person_id != null ? String(row.person_id) : null,
+      meeting_id: row.meeting_id != null ? String(row.meeting_id) : null,
+      player_score: row.player_score ?? null,
+      wins: row.wins || 0,
+      losses: row.losses || 0,
+      first_name: row.first_name || '',
+      last_name: row.last_name || '',
+      club_id: row.club_id != null ? String(row.club_id) : null,
+      team_name: row.team_name || '',
+      computed_at: row.computed_at || now(),
+      score_version: row.score_version || ''
+    },
+    { onConflict: 'week_start' }
+  ));
+}
+
+async function deleteWeeklyMvp(weekStart) {
+  const sb = getClient();
+  if (!sb) return;
+  await write('delete', 'weekly_mvps', sb.from('weekly_mvps')
+    .delete().eq('week_start', String(weekStart).slice(0, 10)));
+}
+
+// All appearance dates of a season/competition (for mvp-refresh --all week
+// discovery). Date column only, small scale like the stats() player scan.
+async function getAppearanceDates(season, competition = 'league', limit = 20000) {
+  const sb = getClient();
+  if (!sb) return [];
+  let q = sb.from('appearances').select('date').eq('competition', competition || 'league').limit(limit);
+  if (season) q = q.eq('season', String(season));
+  const { data, error } = await q;
+  if (error) {
+    console.error(`[db] select "appearances" dates failed: ${error.message || error}`);
+    return [];
+  }
+  return (data || []).map(r => r.date).filter(Boolean);
+}
+
+// All snapshot weeks (for rescore dirty-version refresh). Small table.
+async function getWeeklyMvpWeeks() {
+  const sb = getClient();
+  if (!sb) return [];
+  const { data, error } = await sb.from('weekly_mvps')
+    .select('week_start, season, competition, score_version').limit(1000);
+  if (error) return [];
+  return data || [];
+}
+
 module.exports = {
   available,
   preflightWrite,
@@ -664,5 +803,13 @@ module.exports = {
   getExistingRawMeetingIds,
   getMeetingsWithRaw,
   getAppearancesPage,
+  getAppearancesInRange,
+  getAppearanceDates,
+  getMeetingGroups,
+  getSeasonBest,
+  getWeeklyMvp,
+  upsertWeeklyMvp,
+  deleteWeeklyMvp,
+  getWeeklyMvpWeeks,
   stats
 };

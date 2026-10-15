@@ -1,6 +1,6 @@
 // Supabase connection smoke test. Zero myTT calls, ~10 seconds.
 // Verifies, in order: env vars present -> key is service_role (not anon) ->
-// all 7 tables exist -> write + read-back + delete works -> stats readable.
+// all 11 tables exist -> write + read-back + delete works -> stats readable.
 //
 // Run locally from the Backend/ directory (node_modules already installed):
 //   SUPABASE_URL=https://xyz.supabase.co SUPABASE_SERVICE_ROLE_KEY=eyJ... node smoke.js
@@ -70,7 +70,7 @@ async function main() {
   const sb = createClient(URL, KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 
   console.log('[smoke] 3) tables exist');
-  const tables = ['clubs', 'teams', 'leagues', 'meetings', 'appearances', 'ttr', 'qttr', 'ttr_history', 'qttr_history', 'meta'];
+  const tables = ['clubs', 'teams', 'leagues', 'meetings', 'appearances', 'ttr', 'qttr', 'ttr_history', 'qttr_history', 'meta', 'weekly_mvps'];
   for (const t of tables) {
     const { error } = await sb.from(t).select('*', { count: 'exact', head: true });
     if (error) fail(`table "${t}"`, error.message);
