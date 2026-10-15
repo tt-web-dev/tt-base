@@ -218,6 +218,40 @@ button.mvp-player:hover {
     line-height: 1.4;
 }
 
+/* Season Highscores: small title over each card */
+.mvp-subblock {
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+}
+
+.mvp-subtitle {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    margin-left: .25rem;
+    color: var(--Light-Grey);
+    font-family: KB_Volksans-Bold;
+    font-size: .8rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.mvp-subtitle i {
+    font-size: .8rem;
+}
+
+.mvp-avg-glyph {
+    font-family: KB_Pitch-Still;
+    font-size: .95rem;
+}
+
+.mvp-games {
+    font-size: .72em;
+    color: var(--Grey);
+    letter-spacing: .03em;
+}
+
 /* filter bottom sheets: same pattern as liga-modal (modal.js opens/closes
    them via data-modal-target with zero extra wiring) */
 .mvp-modal {

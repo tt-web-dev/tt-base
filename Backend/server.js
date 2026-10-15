@@ -1072,15 +1072,67 @@ function prettyLeagueGroup(groupId) {
   return slug ? slug.replace(/_/g, ' ').replace(/\s+/g, ' ').trim() : String(groupId);
 }
 
-// GET /mvp/highscore?season= — highest single-meeting league score of the season.
+// GET /mvp/highscore?season= — season bests: best single-meeting league
+// score (MVP) plus most Gesamtpunkte and best Durchschnitt. MVP stays
+// league-only; Gesamt/Durchschnitt span league + Pokal (team decision).
 app.get('/mvp/highscore', async (req, res) => {
   try {
     if (!db.available()) return mvpNotWarmed(res);
     const season = req.query.season ? String(req.query.season) : mvpDefaultSeason();
     const best = await db.getSeasonBest(season, 'league');
-    if (!best) return res.send({ season, winner: null });
-    const groups = await db.getMeetingGroups([best.meeting_id]).catch(() => ({}));
-    res.send({ season, winner: mvp.enrichRow(best, groups) });
+    const groups = await db.getMeetingGroups([
+      ...(best ? [best.meeting_id] : [])
+    ]).catch(() => ({}));
+    // Season aggregates (league + Pokal): group by player in code.
+    const aggRows = await db.getSeasonAggregates(season);
+    // Games caption for the MVP card counts the whole season (same meaning
+    // as on the Gesamt/Durchschnitt cards, which span both competitions).
+    const mvpGames = best ? aggRows.filter(r => String(r.person_id) === String(best.person_id)).length : 0;
+    const mvpCard = best ? { ...mvp.enrichRow(best, groups), games: mvpGames } : null;
+
+    const byPerson = new Map();
+    for (const r of aggRows) {
+      const pid = String(r.person_id);
+      if (!byPerson.has(pid)) byPerson.set(pid, { rows: [] });
+      byPerson.get(pid).rows.push(r);
+    }
+    const sum = rs => rs.reduce((s, r) => s + (r.player_score || 0), 0);
+    const sumKey = (rs, k) => rs.reduce((s, r) => s + (r[k] || 0), 0);
+    const bestMeeting = rs => mvp.rankRows(rs)[0];
+    const players = [...byPerson.entries()].map(([pid, { rows }]) => ({
+      pid,
+      rows,
+      games: rows.length,
+      total: sum(rows),
+      avg: rows.length ? sum(rows) / rows.length : 0,
+      losses: sumKey(rows, 'losses'),
+      wins: sumKey(rows, 'wins')
+    }));
+    const byTotal = [...players].sort((a, b) =>
+      b.total - a.total || a.losses - b.losses || b.wins - a.wins
+      || String(a.pid).localeCompare(String(b.pid)));
+    const byAvg = [...players].sort((a, b) =>
+      b.avg - a.avg || b.games - a.games || a.losses - b.losses
+      || String(a.pid).localeCompare(String(b.pid)));
+    const aggMeetings = [
+      ...(byTotal[0] ? [bestMeeting(byTotal[0].rows).meeting_id] : []),
+      ...(byAvg[0] ? [bestMeeting(byAvg[0].rows).meeting_id] : [])
+    ];
+    const aggGroups = await db.getMeetingGroups(aggMeetings).catch(() => ({}));
+    const allGroups = { ...groups, ...aggGroups };
+    const withStats = (p, extra) => {
+      if (!p) return null;
+      const rep = mvp.enrichRow(bestMeeting(p.rows), allGroups);
+      if (!rep) return null;
+      return { ...rep, games: p.games, total: p.total, avg: Math.round(p.avg), ...extra };
+    };
+    res.send({
+      season,
+      winner: mvpCard, // legacy shape (single card clients)
+      mvp: mvpCard,
+      total: withStats(byTotal[0]),
+      average: withStats(byAvg[0])
+    });
   } catch (e) {
     console.error('[mvp/highscore] failed:', e.message || e);
     res.status(500).send({ error: 'Highscore konnte nicht geladen werden.' });

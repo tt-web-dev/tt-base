@@ -631,20 +631,42 @@ async function stats() {
 // +-1 day and bucket exactly in code (see mvp.js cestDay).
 const APPEAR_MVP_COLS = 'person_id, meeting_id, player_score, wins, losses, single_wins, single_losses, first_name, last_name, club_id, team_name, opponent_name, opponent_club, date, season, competition';
 
-async function getAppearancesInRange(fromDay, toDayExclusive, { season = '', competition = 'league' } = {}) {
+// Supabase/PostgREST silently truncates responses at the server-side
+// max-rows cap (1000 here), ignoring larger .limit() values and reporting
+// no error. Range helpers therefore page with .range() in stable PK
+// (person_id, meeting_id) order until a short page; the cap param stays as
+// a safety ceiling only.
+const APPEAR_PAGE = 1000;
+
+async function pageAppearances(buildQuery, cap = 5000) {
   const sb = getClient();
-  if (!sb) return [];
-  let q = sb.from('appearances').select(APPEAR_MVP_COLS)
-    .gte('date', String(fromDay)).lt('date', String(toDayExclusive))
-    .eq('competition', competition || 'league')
-    .limit(5000);
-  if (season) q = q.eq('season', String(season));
-  const { data, error } = await q;
-  if (error) {
-    console.error(`[db] select "appearances" range failed: ${error.message || error}`);
-    return [];
+  const out = [];
+  if (!sb) return out;
+  const max = Math.max(1, Math.min(cap || 5000, 20000));
+  for (let off = 0; ; off += APPEAR_PAGE) {
+    const q = buildQuery(sb)
+      .order('person_id', { ascending: true })
+      .order('meeting_id', { ascending: true })
+      .range(off, off + APPEAR_PAGE - 1);
+    const { data, error } = await q;
+    if (error) {
+      console.error(`[db] select "appearances" page failed: ${error.message || error}`);
+      return out;
+    }
+    out.push(...(data || []));
+    if (!data || data.length < APPEAR_PAGE || out.length >= max) break;
   }
-  return data || [];
+  return out.slice(0, max);
+}
+
+async function getAppearancesInRange(fromDay, toDayExclusive, { season = '', competition = 'league' } = {}) {
+  return pageAppearances(sb => {
+    let q = sb.from('appearances').select(APPEAR_MVP_COLS)
+      .gte('date', String(fromDay)).lt('date', String(toDayExclusive))
+      .eq('competition', competition || 'league');
+    if (season) q = q.eq('season', String(season));
+    return q;
+  }, 5000);
 }
 
 // Batch map meeting_id -> { group_id, league_name, frozen, date } plus one
@@ -680,6 +702,14 @@ async function getMeetingGroups(ids) {
     };
   }
   return out;
+}
+
+// All appearance rows of a season across competitions (for the Season
+// Highscores Gesamt/Durchschnitt aggregation, grouped in code). Paged (see
+// pageAppearances): the season exceeds the server-side max-rows cap.
+async function getSeasonAggregates(season, limit = 5000) {
+  return pageAppearances(sb => sb.from('appearances').select(APPEAR_MVP_COLS)
+    .eq('season', String(season)), limit);
 }
 
 // Highest single-meeting score of a season (league scope) with the MVP proxy
@@ -740,18 +770,15 @@ async function deleteWeeklyMvp(weekStart) {
 }
 
 // All appearance dates of a season/competition (for mvp-refresh --all week
-// discovery). Date column only, small scale like the stats() player scan.
+// discovery). Paged like the other range helpers; maps to date strings.
 async function getAppearanceDates(season, competition = 'league', limit = 20000) {
-  const sb = getClient();
-  if (!sb) return [];
-  let q = sb.from('appearances').select('date').eq('competition', competition || 'league').limit(limit);
-  if (season) q = q.eq('season', String(season));
-  const { data, error } = await q;
-  if (error) {
-    console.error(`[db] select "appearances" dates failed: ${error.message || error}`);
-    return [];
-  }
-  return (data || []).map(r => r.date).filter(Boolean);
+  const rows = await pageAppearances(sb => {
+    let q = sb.from('appearances').select('person_id, meeting_id, date')
+      .eq('competition', competition || 'league');
+    if (season) q = q.eq('season', String(season));
+    return q;
+  }, limit);
+  return rows.map(r => r.date).filter(Boolean);
 }
 
 // All snapshot weeks (for rescore dirty-version refresh). Small table.
@@ -805,6 +832,7 @@ module.exports = {
   getAppearancesPage,
   getAppearancesInRange,
   getAppearanceDates,
+  getSeasonAggregates,
   getMeetingGroups,
   getSeasonBest,
   getWeeklyMvp,

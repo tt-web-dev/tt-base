@@ -1,6 +1,7 @@
 /* Scout List — under calendar on index.html */
 .scout-list-container {
     display: flex;
+    flex-direction: column;
     gap: 0.45em;
     max-height: calc(3 * 3.9em + 2 * 0.45em);
     overflow-y: auto;
@@ -8,7 +9,8 @@
     scrollbar-color: var(--Dark-Grey) transparent;
     padding-right: 0.15em;
     width: 100%;
-    justify-content: center;
+    justify-content: flex-start;
+    align-items: center;
 }
 .scout-row {
     display: grid;

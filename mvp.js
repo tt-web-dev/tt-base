@@ -128,8 +128,10 @@ function loadingInto(el, label) {
     el.appendChild(holder);
 }
 
-// Winner row: logo + names + score. Whole row opens the player view.
-function playerCard(winner, withLogo) {
+// Winner row: logo + names + value. Whole row opens the player view.
+// display = shown value, tier = scoreClass tier or '' (white), caption =
+// optional small grey line under the names (e.g. games count).
+function playerCard(winner, withLogo, display, tier, caption) {
     const wrap = document.createElement('div');
     wrap.className = 'mvp-winner';
     if (withLogo) {
@@ -150,9 +152,15 @@ function playerCard(winner, withLogo) {
     last.className = 'last';
     last.textContent = winner.lastName || '—';
     names.append(first, last);
+    if (caption) {
+        const games = document.createElement('span');
+        games.className = 'mvp-games';
+        games.textContent = caption;
+        names.appendChild(games);
+    }
     const score = document.createElement('span');
-    score.className = `mvp-score ${scoreClass(winner.playerScore)}`;
-    score.textContent = winner.playerScore;
+    score.className = tier ? `mvp-score ${tier}` : 'mvp-score';
+    score.textContent = display ?? winner.playerScore;
     btn.append(names, score);
     btn.title = `${winner.firstName} ${winner.lastName} — Spieler öffnen`;
     btn.addEventListener('click', () => openPlayerView(winner.personId, {
@@ -255,7 +263,7 @@ async function loadMain() {
         el.replaceChildren();
         paintWeekLabel(data);
         if (data.winner) {
-            el.appendChild(playerCard(data.winner, true));
+            el.appendChild(playerCard(data.winner, true, data.winner.playerScore, scoreClass(data.winner.playerScore)));
         } else {
             el.appendChild(statusEl('Keine Spiele in dieser Woche'));
         }
@@ -373,7 +381,7 @@ async function loadAdv() {
         if (id !== advReq) return;
         el.replaceChildren();
         if (data.winner) {
-            el.appendChild(playerCard(data.winner, false));
+            el.appendChild(playerCard(data.winner, false, data.winner.playerScore, scoreClass(data.winner.playerScore)));
         } else {
             el.appendChild(statusEl('Keine Spiele in dieser Woche'));
         }
@@ -502,20 +510,71 @@ document.addEventListener('click', (event) => {
     if (clubBtn) buildClubRows();
 });
 
-// ---------- season highscore ----------
+// ---------- season highscores (MVP + Gesamtpunkte + Durchschnitt) ----------
+function gamesCaption(games) {
+    return games === 1 ? '1 Spiel' : `${games} Spiele`;
+}
+
+function subBlock(titleNode, bodyNode) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mvp-subblock';
+    wrap.append(titleNode, bodyNode);
+    return wrap;
+}
+
+function subTitle(label, icon) {
+    const t = document.createElement('div');
+    t.className = 'mvp-subtitle';
+    if (icon === 'avg') {
+        const g = document.createElement('span');
+        g.className = 'mvp-avg-glyph';
+        g.textContent = '⌀';
+        t.appendChild(g);
+    } else if (icon) {
+        const i = document.createElement('i');
+        i.className = icon;
+        t.appendChild(i);
+    }
+    const s = document.createElement('span');
+    s.textContent = label;
+    t.appendChild(s);
+    return t;
+}
+
 async function loadHighscore() {
     const el = document.getElementById('mvp-high-card');
     if (!el) return;
-    loadingInto(el, 'Lade Highscore …');
+    loadingInto(el, 'Lade Highscores …');
+    const fail = (e) => {
+        const msg = errKind(e) === 'nodata' ? 'Keine Daten' : `Error: ${e.message}`;
+        el.replaceChildren();
+        for (const [label, icon] of [['MVP', null], ['Gesamtpunkte', 'fa-solid fa-chart-simple'], ['Durchschnitt', 'avg']]) {
+            el.appendChild(subBlock(subTitle(label, icon), statusEl(msg)));
+        }
+    };
     try {
         const data = await apiJson(`/mvp/highscore?season=${encodeURIComponent(state.season)}`);
         el.replaceChildren();
-        if (data.winner) {
-            el.appendChild(playerCard(data.winner, true));
-        } else {
-            el.appendChild(statusEl('Noch keine Spiele in dieser Saison'));
-        }
+        const empty = statusEl('Noch keine Spiele in dieser Saison');
+        el.appendChild(subBlock(
+            subTitle('MVP', null),
+            data.mvp
+                ? playerCard(data.mvp, true, data.mvp.playerScore, scoreClass(data.mvp.playerScore))
+                : empty.cloneNode(true)
+        ));
+        el.appendChild(subBlock(
+            subTitle('Gesamtpunkte', 'fa-solid fa-chart-simple'),
+            data.total
+                ? playerCard(data.total, true, data.total.total, '', gamesCaption(data.total.games))
+                : empty.cloneNode(true)
+        ));
+        el.appendChild(subBlock(
+            subTitle('Durchschnitt', 'avg'),
+            data.average
+                ? playerCard(data.average, true, `⌀ ${data.average.avg}`, scoreClass(data.average.avg), gamesCaption(data.average.games))
+                : empty.cloneNode(true)
+        ));
     } catch (e) {
-        el.replaceChildren(statusEl(errKind(e) === 'nodata' ? 'Keine Daten' : `Error: ${e.message}`));
+        fail(e);
     }
 }
